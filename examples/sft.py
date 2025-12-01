@@ -10,7 +10,7 @@ from hpcai.cookbook import renderers
 from hpcai.cookbook.data import conversation_to_datum
 
 # define Base URL
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 # define API KEY
 API_KEY = "Your_API_Key_Here"
 
@@ -22,7 +22,6 @@ MAX_LENGTH = 1024
 LOG_PATH = "./tmp/tinker-examples/sl-loop"
 TRAIN_STEPS = 30
 SAVE_EVERY = 30
-LOG_PATH = "./tmp/tinker-examples/sl-loop"
 Path(LOG_PATH).mkdir(parents=True, exist_ok=True)
 
 service_client = hpcai.ServiceClient(base_url=BASE_URL, api_key=API_KEY)

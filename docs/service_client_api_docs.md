@@ -4,7 +4,7 @@
 
 The `ServiceClient` is the main entry point for interacting with the HPC-AI Fine-Tune SDK. It provides methods to discover server capabilities, create training clients, and manage REST API operations.
 
-**Base URL**: `https://dev.hpc-ai.com/finetunesdk`
+**Base URL**: `https://www.hpc-ai.com/finetunesdk`
 
 ---
 
@@ -48,7 +48,7 @@ None
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 
 service_client = hpcai.ServiceClient(base_url=BASE_URL, api_key=API_KEY)
@@ -112,7 +112,7 @@ def create_lora_training_client(
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 
 service_client = hpcai.ServiceClient(base_url=BASE_URL, api_key=API_KEY)
@@ -171,7 +171,7 @@ def create_training_client_from_state(path: str) -> TrainingClient
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 CHECKPOINT_PATH = "hpcai://{model_id}/weights/step_0010"
 
@@ -197,7 +197,7 @@ training_client.unload_model().result()
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 
 service_client = hpcai.ServiceClient(base_url=BASE_URL, api_key=API_KEY)
@@ -255,7 +255,7 @@ def create_training_client(
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 
 # You have a model_id from a previous training session
@@ -280,7 +280,7 @@ optim.result()
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 CHECKPOINT_PATH = "hpcai://eb78693b-380d-40f8-a709-ffe0da185718/weights/step_0010"
 
@@ -328,7 +328,7 @@ None
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 TRAINING_RUN_ID = "eb78693b-380d-40f8-a709-ffe0da185718"
 

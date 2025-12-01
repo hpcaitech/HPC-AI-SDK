@@ -4,7 +4,7 @@
 
 The `RestClient` provides REST API operations for querying training runs, checkpoints, and other metadata. You typically get a `RestClient` by calling `service_client.create_rest_client()`.
 
-**Base URL**: `https://dev.hpc-ai.com/finetunesdk`
+**Base URL**: `https://www.hpc-ai.com/finetunesdk`
 
 ---
 
@@ -69,7 +69,7 @@ def list_training_runs(
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 
 service_client = hpcai.ServiceClient(base_url=BASE_URL, api_key=API_KEY)
@@ -92,7 +92,7 @@ for run in response.training_runs:
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 TARGET_MODEL = "Qwen/Qwen3-8B"
 
@@ -157,7 +157,7 @@ def get_training_run(
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 TRAINING_RUN_ID = "eb78693b-380d-40f8-a709-ffe0da185718"
 
@@ -222,7 +222,7 @@ def get_training_run_by_checkpoint_path(
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 CHECKPOINT_PATH = "hpcai://eb78693b-380d-40f8-a709-ffe0da185718/weights/step_0010"
 
@@ -284,7 +284,7 @@ def list_checkpoints(
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 TRAINING_RUN_ID = "eb78693b-380d-40f8-a709-ffe0da185718"
 
@@ -306,7 +306,7 @@ for checkpoint in checkpoints_response.checkpoints:
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 TRAINING_RUN_ID = "eb78693b-380d-40f8-a709-ffe0da185718"
 
@@ -381,7 +381,7 @@ def download_checkpoint_archive(
 import hpcai
 from pathlib import Path
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 TRAINING_RUN_ID = "eb78693b-380d-40f8-a709-ffe0da185718"
 CHECKPOINT_ID = "step_0010"
@@ -412,7 +412,7 @@ import hpcai
 import tarfile
 from pathlib import Path
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 TRAINING_RUN_ID = "eb78693b-380d-40f8-a709-ffe0da185718"
 CHECKPOINT_ID = "final"
@@ -484,7 +484,7 @@ def download_checkpoint_archive_by_checkpoint_path(
 import hpcai
 from pathlib import Path
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 CHECKPOINT_PATH = "hpcai://eb78693b-380d-40f8-a709-ffe0da185718/weights/step_0010"
 
@@ -513,7 +513,7 @@ import hpcai
 import tarfile
 from pathlib import Path
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 CHECKPOINT_PATH = "hpcai://eb78693b-380d-40f8-a709-ffe0da185718/weights/step_0010"
 
@@ -580,7 +580,7 @@ def delete_checkpoint(
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 TRAINING_RUN_ID = "eb78693b-380d-40f8-a709-ffe0da185718"
 CHECKPOINT_ID = "step_0010"
@@ -604,7 +604,7 @@ except Exception as e:
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 TRAINING_RUN_ID = "eb78693b-380d-40f8-a709-ffe0da185718"
 CHECKPOINT_ID = "step_0010"
@@ -679,7 +679,7 @@ def delete_checkpoint_by_checkpoint_path(
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 CHECKPOINT_PATH = "hpcai://eb78693b-380d-40f8-a709-ffe0da185718/weights/step_0010"
 
@@ -701,7 +701,7 @@ except Exception as e:
 ```python
 import hpcai
 
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 API_KEY = "your-api-key-here"
 CHECKPOINT_PATH = "hpcai://eb78693b-380d-40f8-a709-ffe0da185718/weights/step_0010"
 
