@@ -50,10 +50,10 @@ LORA_RANK = 32
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-4
 MAX_LENGTH = 1024
-LOG_PATH = "./tmp/tinker-examples/sl-loop"
+LOG_PATH = "./tmp/hpcai-examples/sl-loop"
 TRAIN_STEPS = 30
 SAVE_EVERY = 30
-LOG_PATH = "./tmp/tinker-examples/sl-loop"
+LOG_PATH = "./tmp/hpcai-examples/sl-loop"
 Path(LOG_PATH).mkdir(parents=True, exist_ok=True)
 ```
 
