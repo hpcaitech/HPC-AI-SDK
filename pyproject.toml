@@ -5,7 +5,7 @@ description = "Python SDK for HPC-AI cloud GPU fine-tuning"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
-{ name = "HPC-AI Technology Inc.", email = "support@hpc-ai.com" },
+{ name = "HPC AI TECHNOLOGY PTE. LTD.", email = "service@hpc-ai.com" },
 ]
 keywords = ["hpcai", "machine learning", "gpu", "fine-tuning", "distributed training"]
 dependencies = [
@@ -46,7 +46,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://hpc-ai.com"
 Repository = "https://github.com/hpcaitech/HPC-AI-SDK"
-Documentation = "https://hpc-ai.com/docs"
+Documentation = "https://www.hpc-ai.com/doc"
 
 [project.optional-dependencies]
 aiohttp = ["aiohttp", "httpx_aiohttp>=0.1.8"]
