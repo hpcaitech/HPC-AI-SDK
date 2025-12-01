@@ -5,7 +5,7 @@
 The `TrainingClient` is used for training ML models with forward/backward passes and optimization. You typically get a `TrainingClient` by calling `service_client.create_lora_training_client()` or `service_client.create_training_client_from_state()`.
 
 
-**Base URL**: `https://dev.hpc-ai.com/finetunesdk`
+**Base URL**: `https://www.hpc-ai.com/finetunesdk`
 ---
 
 ## Table of Contents

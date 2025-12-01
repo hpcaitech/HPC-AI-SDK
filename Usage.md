@@ -36,7 +36,7 @@ from hpcai import checkpoint_utils
 
 ```python
 # define Base URL
-BASE_URL = "https://dev.hpc-ai.com/finetunesdk"
+BASE_URL = "https://www.hpc-ai.com/finetunesdk"
 # define API KEY
 API_KEY =  "Your API key from step 1"
 ```

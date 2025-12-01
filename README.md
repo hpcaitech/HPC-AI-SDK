@@ -25,7 +25,7 @@ from hpcai import ServiceClient, TrainingClient
 
 # Initialize the service client
 client = ServiceClient(
-    base_url="https://hpc-ai.com",
+    base_url="https://www.hpc-ai.com",
     api_key="your-api-key"
 )
 
@@ -66,7 +66,7 @@ model_path = "hpcai://run-123/weights/checkpoint-001"
 Configure the SDK using these environment variables:
 
 - `HPCAI_API_KEY` - Your API key
-- `HPCAI_BASE_URL` - API endpoint (default: https://hpc-ai.com)
+- `HPCAI_BASE_URL` - API endpoint (default: https://www.hpc-ai.com)
 - `HPCAI_TELEMETRY` - Enable/disable telemetry (default: enabled)
 
 Legacy environment variable names are supported for backward compatibility.
