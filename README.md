@@ -6,8 +6,13 @@ The HPC-AI Python SDK provides a powerful interface for distributed GPU training
 
 ## Installation
 
+we recommend using conda to install the SDK.
+
 ```bash
+conda create -n hpcai python=3.12 -y
+conda activate hpcai
 git clone https://github.com/hpcaitech/HPC-AI-SDK
+cd HPC-AI-SDK
 pip install .
 ```
 
@@ -73,13 +78,13 @@ Legacy environment variable names are supported for backward compatibility.
 - **Async Support**: Full async/await support for concurrent operations
 - **Type Safety**: Comprehensive type hints for better IDE support
 
-## Documentation
-
-For more information, visit [hpc-ai.com/docs](https://hpc-ai.com/docs)
 
 ## Usage Example
 
 [A usage example for finetune "Qwen3-8B" model](./Usage.md).
+
+## Documentation
+
 ### API Reference
 
 - [ServiceClient API Reference](./docs/service_client_api_docs.md) - Main entry point for creating clients and querying server capabilities

@@ -6,8 +6,7 @@
 # Copyright © 2025 HPC-AI.COM
 
 """
-Use viz_sft_dataset to visualize the output of different renderers. E.g.,
-    python -m tinker_cookbook.supervised.viz_sft_dataset dataset_path=Tulu3Builder renderer_name=role_colon
+Use viz_sft_dataset to visualize the output of different renderers.
 """
 
 import json

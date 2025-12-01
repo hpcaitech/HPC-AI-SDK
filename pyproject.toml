@@ -15,8 +15,15 @@ dependencies = [
     "anyio>=3.5.0, <5",
     "distro>=1.7.0, <2",
     "sniffio",
-    "numpy",
-    "torch",
+    # Scientific computing
+    "numpy>=1.24.0",
+    # Deep learning framework
+    "torch>=2.0.0",
+    # Transformers library for tokenizers
+    "transformers>=4.30.0",
+    "datasets",
+    "nest_asyncio",
+    "wandb",
 ]
 requires-python = ">= 3.9"
 classifiers = [
@@ -38,7 +45,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://hpc-ai.com"
-Repository = "https://github.com/hpcaitech/Colossal-Tinker"
+Repository = "https://github.com/hpcaitech/HPC-AI-SDK"
 Documentation = "https://hpc-ai.com/docs"
 
 [project.optional-dependencies]
@@ -99,7 +106,7 @@ path = "README.md"
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 # replace relative links with absolute links
 pattern = '\[(.+?)\]\(((?!https?://)\S+?)\)'
-replacement = '[\1](https://github.com/hpcaitech/Colossal-Tinker/tree/main/\g<2>)'
+replacement = '[\1](https://github.com/hpcaitech/HPC-AI-SDK/tree/main/\g<2>)'
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -116,7 +123,7 @@ filterwarnings = [
 # there are a couple of flags that are still disabled by
 # default in strict mode as they are experimental and niche.
 typeCheckingMode = "strict"
-pythonVersion = "3.8"
+pythonVersion = "3.12"
 
 exclude = [
     "_dev",
