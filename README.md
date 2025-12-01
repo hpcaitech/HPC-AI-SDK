@@ -37,19 +37,7 @@ training_client = client.create_lora_training_client(
 )
 ```
 
-## Migration Guide
 
-If you previously used another training SDK, update your code:
-
-```bash
-pip install .
-```
-
-Update your imports:
-
-```python
-from hpcai import ServiceClient
-```
 
 ### Path Protocol
 
@@ -59,7 +47,6 @@ The SDK uses the `hpcai://` protocol for model and checkpoint paths:
 model_path = "hpcai://run-123/weights/checkpoint-001"
 ```
 
-**Note**: Legacy path protocols are supported during the migration period for backward compatibility.
 
 ### Environment Variables
 
@@ -67,9 +54,7 @@ Configure the SDK using these environment variables:
 
 - `HPCAI_API_KEY` - Your API key
 - `HPCAI_BASE_URL` - API endpoint (default: https://www.hpc-ai.com)
-- `HPCAI_TELEMETRY` - Enable/disable telemetry (default: enabled)
 
-Legacy environment variable names are supported for backward compatibility.
 
 ## Features
 
