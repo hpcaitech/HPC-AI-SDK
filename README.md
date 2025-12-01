@@ -34,7 +34,7 @@ training_client = client.create_lora_training_client(
 If you previously used another training SDK, update your code:
 
 ```bash
-pip install hpcai
+pip install .
 ```
 
 Update your imports:
