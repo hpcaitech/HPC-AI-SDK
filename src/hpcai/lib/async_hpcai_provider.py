@@ -1,0 +1,35 @@
+# Copyright 2025 Thinking Machines Lab
+# Licensed under the Apache License, Version 2.0
+#
+# Modifications:
+# - Adapted for HPC-AI cloud fine-tuning workflow
+# Copyright © 2025 HPC-AI.COM
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Coroutine
+from contextlib import AbstractContextManager
+from typing import Any, Protocol, TypeVar
+
+from hpcai._client import AsyncHpcAI
+
+from .public_interfaces.api_future import AwaitableConcurrentFuture
+from .client_connection_pool_type import ClientConnectionPoolType
+
+T = TypeVar("T")
+
+
+class AsyncHpcAIProvider(Protocol):
+    # both of the following methods should be threadsafe
+    def get_loop(self) -> asyncio.AbstractEventLoop: ...
+
+    def run_coroutine_threadsafe(
+        self,
+        coro: Coroutine[Any, Any, T],
+    ) -> AwaitableConcurrentFuture[T]: ...
+
+    # must be called and used within the provided event loop
+    def aclient(
+        self, client_pool_type: ClientConnectionPoolType
+    ) -> AbstractContextManager[AsyncHpcAI]: ...
