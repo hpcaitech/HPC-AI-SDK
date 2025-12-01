@@ -37,19 +37,7 @@ training_client = client.create_lora_training_client(
 )
 ```
 
-## Migration Guide
 
-If you previously used another training SDK, update your code:
-
-```bash
-pip install .
-```
-
-Update your imports:
-
-```python
-from hpcai import ServiceClient
-```
 
 ### Path Protocol
 
