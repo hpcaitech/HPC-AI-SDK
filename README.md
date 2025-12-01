@@ -7,8 +7,11 @@ The HPC-AI Python SDK provides a powerful interface for distributed GPU training
 ## Installation
 
 ```bash
-pip install hpcai
+git clone https://github.com/hpcaitech/HPC-AI-SDK
+pip install .
 ```
+
+We only support installing from source currently, we will release official PIP package soon.
 
 ## Quick Start
 
