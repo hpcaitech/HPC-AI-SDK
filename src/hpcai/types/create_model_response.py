@@ -1,0 +1,23 @@
+# Copyright 2025 Thinking Machines Lab
+#
+# Licensed under the Apache License, Version 2.0
+#
+# Modifications:
+# - Adapted for HPC-AI cloud fine-tuning workflow
+# Copyright © 2025 HPC-AI.COM
+
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+from typing_extensions import Literal
+
+from .._compat import PYDANTIC_V2, ConfigDict
+from .._models import BaseModel
+from .model_id import ModelID
+
+__all__ = ["CreateModelResponse"]
+
+
+class CreateModelResponse(BaseModel):
+    model_id: ModelID
+
+    type: Literal["create_model"] = "create_model"

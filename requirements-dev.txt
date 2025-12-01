@@ -1,0 +1,31 @@
+# HPC-AI SDK - Development Dependencies
+# Include runtime dependencies
+-r requirements.txt
+
+# Type checking and linting
+pyright==1.1.402
+mypy>=1.0.0
+ruff>=0.1.0
+
+# Testing framework
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-xdist>=3.6.1
+respx>=0.22.0
+
+# Testing utilities
+time-machine>=2.15.0
+dirty-equals>=0.6.0
+nest-asyncio==1.6.0
+
+# Development utilities
+rich>=13.7.1
+importlib-metadata>=6.7.0
+
+# Python version compatibility
+python-dateutil>=2.8.0
+
+# Build tools (optional, for local development)
+# hatchling==1.26.3
+# hatch-fancy-pypi-readme
+

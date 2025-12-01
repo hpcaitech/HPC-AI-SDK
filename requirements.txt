@@ -1,0 +1,36 @@
+# HPC-AI SDK - Runtime Dependencies
+# Generated from pyproject.toml
+# Python >= 3.11
+
+# Core HTTP client with HTTP/2 support
+httpx[http2]>=0.23.0,<1
+
+# Data validation and serialization
+pydantic>=1.9.0,<3
+
+# Type extensions for better type hints
+typing-extensions>=4.10,<5
+
+# Async I/O utilities
+anyio>=3.5.0,<5
+
+# System information utilities
+distro>=1.7.0,<2
+
+# Sniff out which async library is being used
+sniffio
+
+# Scientific computing and machine learning
+numpy>=1.24.0
+torch>=2.0.0
+
+# Additional runtime dependencies
+certifi>=2024.0.0  # SSL certificate handling
+idna>=3.0          # Internationalized Domain Names
+h11>=0.14.0        # HTTP/1.1 protocol
+httpcore>=1.0.0    # Low-level HTTP client
+
+# Optional: AIOHTTP support (uncomment if needed)
+# aiohttp>=3.8.0
+# httpx-aiohttp>=0.1.8
+

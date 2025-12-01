@@ -1,0 +1,34 @@
+# Copyright 2025 Thinking Machines Lab
+#
+# Licensed under the Apache License, Version 2.0
+#
+# Modifications:
+# - Adapted for HPC-AI cloud fine-tuning workflow
+# Copyright © 2025 HPC-AI.COM
+
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+from datetime import datetime
+
+from .._models import BaseModel
+from .severity import Severity
+from .event_type import EventType
+
+__all__ = ["SessionEndEvent"]
+
+
+class SessionEndEvent(BaseModel):
+    duration: str
+    """ISO 8601 duration string"""
+
+    event: EventType
+    """Telemetry event type"""
+
+    event_id: str
+
+    event_session_index: int
+
+    severity: Severity
+    """Log severity level"""
+
+    timestamp: datetime
