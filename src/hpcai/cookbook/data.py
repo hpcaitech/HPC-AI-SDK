@@ -5,10 +5,6 @@
 # - Adapted for HPC-AI cloud fine-tuning workflow
 # Copyright © 2025 HPC-AI.COM
 
-"""
-Docstring for Colossal-Tinker-backend.colossal_tinker.tinker-local-dev.src.hpcai.cookbook.data
-"""
-
 import torch
 from hpcai.types import Datum, ModelInput, TensorData
 from hpcai.cookbook.renderers import Message, Renderer, TrainOnWhat
