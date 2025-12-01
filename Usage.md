@@ -102,7 +102,7 @@ for step in range(target_steps):
     start_time = time.time()
 
     if step > 0 and step % SAVE_EVERY == 0:
-        paths = await checkpoint_utils.save_checkpoint_async(
+        paths = checkpoint_utils.save_checkpoint(
             training_client, name=f"step_{step}", log_path=LOG_PATH,
             loop_state={"step": 1}, kind="both"
         )
