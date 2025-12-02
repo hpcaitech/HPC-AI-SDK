@@ -53,7 +53,7 @@ model_path = "hpcai://run-123/weights/checkpoint-001"
 Configure the SDK using these environment variables:
 
 - `HPCAI_API_KEY` - Your API key
-- `HPCAI_BASE_URL` - API endpoint (default: https://www.hpc-ai.com)
+- `HPCAI_BASE_URL` - API endpoint (default: https://www.hpc-ai.com/finetunesdk)
 
 
 ## Features
