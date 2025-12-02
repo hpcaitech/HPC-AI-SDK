@@ -25,7 +25,7 @@ from hpcai import ServiceClient, TrainingClient
 
 # Initialize the service client
 client = ServiceClient(
-    base_url="https://www.hpc-ai.com",
+    base_url="https://www.hpc-ai.com/finetunesdk",
     api_key="your-api-key"
 )
 
