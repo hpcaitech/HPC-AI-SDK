@@ -176,7 +176,7 @@ class ServiceClient(TelemetryProvider):
         except KeyboardInterrupt:
             raise ModelCreationCancelled() from None
         logger.info(f"Creating TrainingClient for {model_id=}")
-        return self.create_training_client(model_id)
+        return self.create_training_client(model_id, base_model=base_model)
 
     @capture_exceptions(fatal=True)
     async def create_lora_training_client_async(
@@ -186,7 +186,7 @@ class ServiceClient(TelemetryProvider):
         seed: int | None = None,
         train_mlp: bool = True,
         train_attn: bool = True,
-        train_unembed: bool = True,
+        train_unembed: bool = False,
     ) -> TrainingClient:
         assert any([train_mlp, train_attn, train_unembed]), (
             "At least one of train_mlp, train_attn, or train_unembed must be True"
@@ -202,13 +202,13 @@ class ServiceClient(TelemetryProvider):
             ),
         )
         logger.info(f"Creating TrainingClient for {model_id=}")
-        return self.create_training_client(model_id)
+        return self.create_training_client(model_id, base_model=base_model)
 
     @capture_exceptions(fatal=True)
-    def create_training_client(self, model_id: types.ModelID | None = None) -> TrainingClient:
+    def create_training_client(self, model_id: types.ModelID | None = None, base_model: str | None = None) -> TrainingClient:
         from .training_client import TrainingClient
 
-        return TrainingClient(self.holder, model_id=model_id)
+        return TrainingClient(self.holder, model_id=model_id, base_model=base_model)
 
     @sync_only
     @capture_exceptions(fatal=True)
@@ -250,8 +250,8 @@ class ServiceClient(TelemetryProvider):
     ) -> SamplingClient:
         from .sampling_client import SamplingClient
 
-        if model_path is None and base_model is None:
-            raise ValueError("Either model_path or base_model must be provided")
+        if base_model is None:
+            raise ValueError("base_model must be provided")
         return SamplingClient(
             self.holder,
             model_path=model_path,

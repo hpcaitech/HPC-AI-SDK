@@ -33,3 +33,9 @@ class SamplingParams(BaseModel):
 
     top_p: float = 1
     """Nucleus sampling probability"""
+    
+    return_logprob: bool = True
+    
+    top_logprobs_num: int = 1
+    
+    logprob_start_len: int = -1

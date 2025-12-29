@@ -34,3 +34,6 @@ httpcore>=1.0.0    # Low-level HTTP client
 # aiohttp>=3.8.0
 # httpx-aiohttp>=0.1.8
 
+logtree
+neptune_scale
+trackio
