@@ -8,6 +8,6 @@ class UnloadContextManager:
         return self
         
     def __exit__(self, exc_type, exc, tb):
-        print("Exiting: Unloading training client resources...")
+        print("Exiting: Unloading training client resources...", self.training_client.model_id)
         self.training_client.unload_model().result()
         return False  # Do not suppress exceptions

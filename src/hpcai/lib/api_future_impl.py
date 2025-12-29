@@ -205,6 +205,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
 
             # Function hasn't been called yet, execute it now
             result_dict: Any = await response.json()
+            # print(result_dict)
 
             if "type" in result_dict and result_dict["type"] == "try_again":
                 # Task still processing - use DEBUG level to avoid log spam

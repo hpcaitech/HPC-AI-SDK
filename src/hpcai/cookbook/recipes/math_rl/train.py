@@ -26,7 +26,7 @@ class CLIConfig:
     """Simple command-line configuration for RL training."""
 
     # Model configuration
-    model_name: str = "meta-llama/Llama-3.1-8B-Instruct"
+    model_name: str = "Qwen/Qwen3-4B"
     lora_rank: int = 32
     renderer_name: str | None = None
     load_checkpoint_path: str | None = None
@@ -61,6 +61,7 @@ class CLIConfig:
 
     # Service configuration
     base_url: str | None = None
+    api_key: str | None = None
 
     behavior_if_log_dir_exists: cli_utils.LogdirBehavior = "ask"
 
@@ -136,6 +137,7 @@ async def cli_main(cli_config: CLIConfig):
         wandb_name=wandb_name,
         log_path=log_path,
         base_url=cli_config.base_url,
+        api_key=cli_config.api_key,
         load_checkpoint_path=cli_config.load_checkpoint_path,
         compute_post_kl=cli_config.compute_post_kl,
         kl_penalty_coef=cli_config.kl_penalty_coef,

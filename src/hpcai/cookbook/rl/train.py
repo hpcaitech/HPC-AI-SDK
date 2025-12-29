@@ -21,7 +21,7 @@ import numpy as np
 import hpcai
 import torch
 from hpcai.types import LossFnType
-from hpcai.cookbook import checkpoint_utils
+from hpcai.cookbook import checkpoint_utils, context_manager
 from hpcai.cookbook.completers import TinkerTokenCompleter
 from hpcai.cookbook.display import colorize_example
 from hpcai.cookbook.eval.evaluators import SamplingClientEvaluator, SamplingClientEvaluatorBuilder
@@ -256,6 +256,7 @@ class Config:
 
     log_path: str = chz.field(munger=lambda _, s: os.path.expanduser(s))
     base_url: str | None = None
+    api_key: str | None = None
     enable_trace: bool = False
 
     remove_constant_reward_groups: bool = False
@@ -470,6 +471,7 @@ async def do_async_training(
 
     # This will be updated by the training loop
     sampling_client = training_client.create_sampling_client(path_dict["sampler_path"])
+    print("sampling_client.base_model", sampling_client.base_model)
     sampling_client_step = start_batch
     sampling_client_updated_event = asyncio.Event()
     sampling_client_updated_event.set()
@@ -706,7 +708,7 @@ async def save_checkpoint_and_get_sampling_client(
             )
             return training_client.create_sampling_client(path_dict["sampler_path"]), metrics
         else:
-            return await training_client.save_weights_and_get_sampling_client_async(), metrics
+            return await training_client.save_weights_and_get_sampling_client_async("current_training_step"), metrics
 
 
 @scope
@@ -979,7 +981,6 @@ async def do_sync_training(
     sampling_client, _ = await save_checkpoint_and_get_sampling_client(
         training_client, start_batch, cfg.log_path, cfg.save_every, start_batch
     )
-
     for i_batch in range(start_batch, end_batch):
         metrics = {
             "progress/batch": i_batch,
@@ -1008,8 +1009,7 @@ async def do_sync_training(
         ):
             # Note: do_remove_constant_reward_groups=False here because we remove
             # constant reward groups after all rollouts are collected (below)
-            trajectory_groups_P = await asyncio.gather(
-                *[
+            group_rollout_futures = [
                     asyncio.create_task(
                         do_group_rollout_and_filter_constant_reward(
                             sampling_client,
@@ -1022,7 +1022,9 @@ async def do_sync_training(
                         name=f"sample_task_{i}",
                     )
                     for i, builder in enumerate(env_group_builders_P)
-                ],
+                ]
+            trajectory_groups_P = await asyncio.gather(
+                *group_rollout_futures,
             )
 
         if cfg.remove_constant_reward_groups:
@@ -1077,7 +1079,7 @@ async def main(
     else:
         start_batch = 0
 
-    service_client = hpcai.ServiceClient(base_url=cfg.base_url)
+    service_client = hpcai.ServiceClient(base_url=cfg.base_url, api_key=cfg.api_key)
     if resume_info:
         # Resuming interrupted training - load optimizer state for proper continuation
         training_client = (
@@ -1096,50 +1098,51 @@ async def main(
         training_client = await service_client.create_lora_training_client_async(
             cfg.model_name, rank=cfg.lora_rank
         )
+    with context_manager.UnloadContextManager(training_client):
+        # Get tokenizer from training client
+        tokenizer = training_client.get_tokenizer()
 
-    # Get tokenizer from training client
-    tokenizer = training_client.get_tokenizer()
+        # Create dataset from thunk
+        dataset, maybe_test_dataset = await cfg.dataset_builder()
+        evaluators = [evaluator() for evaluator in cfg.evaluator_builders]
+        if maybe_test_dataset is not None:
+            evaluators.append(RLTestSetEvaluator(maybe_test_dataset, max_tokens=cfg.max_tokens))
 
-    # Create dataset from thunk
-    dataset, maybe_test_dataset = await cfg.dataset_builder()
-    evaluators = [evaluator() for evaluator in cfg.evaluator_builders]
-    if maybe_test_dataset is not None:
-        evaluators.append(RLTestSetEvaluator(maybe_test_dataset, max_tokens=cfg.max_tokens))
+        num_batches = len(dataset)
+        logger.info(f"Will train on {num_batches} batches")
 
-    num_batches = len(dataset)
-    logger.info(f"Will train on {num_batches} batches")
-
-    # Training loop
-    if cfg.async_config is not None:
-        training_func = do_async_training
-    elif cfg.stream_minibatch_config is not None:
-        training_func = do_sync_training_with_stream_minibatch
-    else:
-        training_func = do_sync_training
-    await training_func(
-        start_batch=start_batch,
-        end_batch=num_batches,
-        num_batches=num_batches,
-        cfg=cfg,
-        training_client=training_client,
-        service_client=service_client,
-        evaluators=evaluators,
-        dataset=dataset,
-        ml_logger=ml_logger,
-        tokenizer=tokenizer,
-    )
-
-    # Save final checkpoint
-    if start_batch < num_batches:
-        _ = await checkpoint_utils.save_checkpoint_async(
+        # Training loop
+        if cfg.async_config is not None:
+            training_func = do_async_training
+        elif cfg.stream_minibatch_config is not None:
+            training_func = do_sync_training_with_stream_minibatch
+        else:
+            training_func = do_sync_training
+        
+        await training_func(
+            start_batch=start_batch,
+            end_batch=num_batches,
+            num_batches=num_batches,
+            cfg=cfg,
             training_client=training_client,
-            name="final",
-            log_path=cfg.log_path,
-            kind="both",
-            loop_state={"batch": num_batches},
+            service_client=service_client,
+            evaluators=evaluators,
+            dataset=dataset,
+            ml_logger=ml_logger,
+            tokenizer=tokenizer,
         )
-    else:
-        logger.info("Training was already complete; nothing to do")
+
+        # Save final checkpoint
+        if start_batch < num_batches:
+            _ = await checkpoint_utils.save_checkpoint_async(
+                training_client=training_client,
+                name="final",
+                log_path=cfg.log_path,
+                kind="both",
+                loop_state={"batch": num_batches},
+            )
+        else:
+            logger.info("Training was already complete; nothing to do")
 
     # Cleanup
     ml_logger.close()
