@@ -116,8 +116,10 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 return None
             raise e
         # except Exception as e:
-        #     logger.error(f"Exception in _send_asample_request: {e}")
-        #     logger.error(traceback.format_exc())
+        #     # debugging: only log unexpected exceptions
+        #     if "Connection error" not in str(e) and "Request timed out" not in str(e):
+        #         logger.error(f"Exception in _send_asample_request: {e}")
+        #         # logger.error(traceback.format_exc())
         #     raise e
         
 

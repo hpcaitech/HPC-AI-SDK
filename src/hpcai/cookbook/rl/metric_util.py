@@ -102,11 +102,14 @@ def _compute_trajectory_metrics(trajectory_groups_P: List[TrajectoryGroup]) -> D
     return metrics
 
 
-def dataset_to_env_group_builders(dataset: RLDataset) -> list[EnvGroupBuilder]:
+def dataset_to_env_group_builders(dataset: RLDataset, max_samples: int = -1) -> list[EnvGroupBuilder]:
     """
     Get the whole dataset as a list of env group builders.
     """
-    return list(itertools.chain(*[dataset.get_batch(i) for i in range(len(dataset))]))
+    ret = list(itertools.chain(*[dataset.get_batch(i) for i in range(len(dataset))]))
+    if max_samples > 0:
+        ret = ret[:max_samples]
+    return ret
 
 
 class RLTestSetEvaluator(SamplingClientEvaluator):
@@ -116,8 +119,9 @@ class RLTestSetEvaluator(SamplingClientEvaluator):
         max_tokens: int,
         name: str = "test",
         num_groups_to_log: int = 4,
+        max_samples_to_eval: int = -1
     ):
-        self.env_group_builders_P = dataset_to_env_group_builders(dataset)
+        self.env_group_builders_P = dataset_to_env_group_builders(dataset, max_samples=max_samples_to_eval)
         self.max_tokens = max_tokens
         self.name = name
         self.num_groups_to_log = num_groups_to_log
