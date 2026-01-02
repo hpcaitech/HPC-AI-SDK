@@ -157,7 +157,7 @@ class ServiceClient(TelemetryProvider):
         seed: int | None = None,
         train_mlp: bool = True,
         train_attn: bool = True,
-        train_unembed: bool = True,
+        train_unembed: bool = False,
     ) -> TrainingClient:
         assert any([train_mlp, train_attn, train_unembed]), (
             "At least one of train_mlp, train_attn, or train_unembed must be True"

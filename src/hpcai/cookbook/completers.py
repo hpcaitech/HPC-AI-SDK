@@ -14,9 +14,9 @@ Evals and other code should use the appropriate interface.
 
 from dataclasses import dataclass
 from typing import TypeAlias
-
+import random
 import hpcai
-
+import numpy as np
 from hpcai.cookbook import renderers
 
 # Interfaces
@@ -80,11 +80,7 @@ class TinkerTokenCompleter(TokenCompleter):
         # Extract tokens and logprobs from the first (and only) sample
         sampled_tokens = sample_result.sequences[0].tokens
         sampled_logprobs = sample_result.sequences[0].logprobs
-        if sampled_logprobs is None:
-            # create mock logprob for debugging
-            import numpy as np
-            import random
-            sampled_logprobs = (-np.abs(np.random.rand(len(sampled_tokens)))-random.randint(-8, 0)).tolist()  # mock logprobs
+            
         assert sampled_logprobs is not None
 
         return TokensWithLogprobs(tokens=sampled_tokens, maybe_logprobs=sampled_logprobs)

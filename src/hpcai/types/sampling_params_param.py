@@ -34,10 +34,4 @@ class SamplingParamsParam(TypedDict, total=False):
 
     top_p: float
     """Nucleus sampling probability"""
-    
-    return_logprob: bool = True
-    
-    top_logprobs_num: int = 1
-    
-    logprob_start_len: int = -1
 
