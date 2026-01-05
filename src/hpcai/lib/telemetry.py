@@ -299,7 +299,7 @@ class Telemetry:
 def _is_telemetry_enabled() -> bool:
     """Check if telemetry is enabled via environment variables.
 
-    Controlled exclusively via HPCAI_TELEMETRY. Defaults to enabled when unset.
+    Controlled exclusively via HPCAI_TELEMETRY. Defaults to disable when unset.
     """
     telemetry_var = os.environ.get("HPCAI_TELEMETRY", "0")
     return telemetry_var.lower() in {
