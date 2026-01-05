@@ -25,7 +25,7 @@ class LoraConfig(StrictBase):
     Useful if you need deterministic or reproducible initialization of weights.
     """
 
-    train_unembed: bool = True
+    train_unembed: bool = False
     """Whether to add lora to the unembedding layer"""
 
     train_mlp: bool = True

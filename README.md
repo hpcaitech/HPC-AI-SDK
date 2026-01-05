@@ -44,7 +44,7 @@ training_client = client.create_lora_training_client(
 The SDK uses the `hpcai://` protocol for model and checkpoint paths:
 
 ```python
-model_path = "hpcai://run-123/weights/checkpoint-001"
+model_path = "hpcai://run-123/training/checkpoint-001"
 ```
 
 
@@ -75,6 +75,16 @@ Configure the SDK using these environment variables:
 - [ServiceClient API Reference](./docs/service_client_api_docs.md) - Main entry point for creating clients and querying server capabilities
 - [TrainingClient API Reference](./docs/training_client_api_docs.md) - Training operations including forward/backward passes and optimization
 - [RestClient API Reference](./docs/rest_client_api_docs.md) - REST API operations for querying training runs and checkpoints
+
+## Development
+
+This repository uses `pre-commit` for basic formatting and hygiene checks.
+
+```bash
+pip install -r requirements-dev.txt
+pre-commit install
+pre-commit run -a
+```
 
 ## Third-Party Notice
 
