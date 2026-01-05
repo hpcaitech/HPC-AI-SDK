@@ -13,6 +13,7 @@ import asyncio
 import logging
 import os
 import time
+import traceback
 from collections.abc import Sequence
 from concurrent.futures import Future as ConcurrentFuture
 from functools import lru_cache
@@ -122,6 +123,13 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             if e.status_code == 429:
                 return None
             raise e
+        # except Exception as e:
+        #     # debugging: only log unexpected exceptions
+        #     if "Connection error" not in str(e) and "Request timed out" not in str(e):
+        #         logger.error(f"Exception in _send_asample_request: {e}")
+        #         # logger.error(traceback.format_exc())
+        #     raise e
+        
 
     async def _sample_async_impl(
         self,
@@ -131,6 +139,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         include_prompt_logprobs: bool,
     ) -> types.SampleResponse:
         idempotency_key = self.holder.make_idempotency_key()
+        print(idempotency_key)
         async with self.holder._sample_dispatch_semaphore:
             while True:
                 if self.holder._sample_backoff_until is not None and time.time() < self.holder._sample_backoff_until:
@@ -169,6 +178,8 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         include_prompt_logprobs: bool = False,
     ) -> ConcurrentFuture[types.SampleResponse]:
         """Internal method that does the actual API call without retry logic."""
+        if include_prompt_logprobs:
+            sampling_params.logprob_start_len = 0
 
         async def _sample_async():
             return await self._sample_async_impl(prompt, num_samples, sampling_params, include_prompt_logprobs)

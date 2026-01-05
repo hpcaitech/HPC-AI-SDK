@@ -204,6 +204,9 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                     delay = min(2**server_error_retries, 30)  # Max 30 seconds
                     await asyncio.sleep(delay)
                     continue
+                if e.status_code == 429:
+                    # Rate limited - exponential backoff
+                    raise e
                 raise ValueError(
                     f"Error retrieving result: {e} with status code {e.status_code=} for {self.request_id=} and expected type {self.model_cls=}"
                 ) from e
@@ -230,6 +233,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
 
             # Function hasn't been called yet, execute it now
             result_dict: Any = await response.json()
+            # print(result_dict)
 
             if "type" in result_dict and result_dict["type"] == "try_again":
                 # Task still processing - use DEBUG level to avoid log spam

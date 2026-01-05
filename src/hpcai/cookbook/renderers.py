@@ -75,6 +75,21 @@ class Renderer:
         raise NotImplementedError
 
 
+def ensure_text(content) -> str:
+    """
+    Assert that content is text-only and return it as a string.
+
+    Raises ValueError if content contains images or multiple parts.
+    Use this to validate that message content is text-only before
+    processing it in code paths that don't support multimodal content.
+    """
+    if isinstance(content, str):
+        return content
+    if len(content) == 1 and content[0]["type"] == "text":
+        return content[0]["text"]
+    raise ValueError(f"Expected text content, got multimodal content with {len(content)} parts")
+
+
 def tokens_weights_from_strings_weights(
     strings_weights: list[tuple[str, float]],
     tokenizer: Tokenizer,

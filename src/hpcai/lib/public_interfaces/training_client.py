@@ -77,9 +77,10 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         >>> training_client.unload_model().result()
     """
 
-    def __init__(self, holder: InternalClientHolder, model_id: types.ModelID | None = None):
+    def __init__(self, holder: InternalClientHolder, model_id: types.ModelID | None = None, base_model: str | None = None):
         self.holder = holder
         self.model_id = model_id
+        self.base_model = base_model
 
         self._training_client_id: int = self.holder.get_training_client_id()
 
@@ -564,7 +565,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     def create_sampling_client(self, model_path: str, retry_config: RetryConfig | None = None) -> SamplingClient:
         from .sampling_client import SamplingClient
 
-        return SamplingClient(self.holder, model_path=model_path, retry_config=retry_config)
+        return SamplingClient(self.holder, model_path=model_path, base_model=self.base_model, retry_config=retry_config)
 
     @capture_exceptions(fatal=True)
     def save_weights_and_get_sampling_client(
@@ -584,7 +585,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         save_weights_future = await self.save_weights_for_sampler_async(name)
         save_weights_result = await save_weights_future.result_async()
         model_path = save_weights_result.path
-        return SamplingClient(self.holder, model_path=model_path, retry_config=retry_config)
+        return SamplingClient(self.holder, model_path=model_path, base_model=self.base_model, retry_config=retry_config)
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
