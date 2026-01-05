@@ -26,7 +26,12 @@ from hpcai.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from hpcai.lib.telemetry import Telemetry, capture_exceptions
 from hpcai.lib.telemetry_provider import TelemetryProvider
 
-from ..api_future_impl import QueueState, QueueStateObserver, _APIFuture
+from ..api_future_impl import (
+    QueueState,
+    QueueStateLogger,
+    QueueStateObserver,
+    _APIFuture,
+)
 from ..retry_handler import RetryConfig, RetryHandler
 
 if TYPE_CHECKING:
@@ -83,11 +88,9 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             model_path or base_model, retry_config=retry_config, telemetry=holder.get_telemetry()
         )
 
-        self.feature_gates = set(
-            os.environ.get("HPCAI_FEATURE_GATES", "async_sampling").split(",")
-        )
+        self.feature_gates = set(os.environ.get("HPCAI_FEATURE_GATES", "async_sampling").split(","))
 
-        self._last_queue_state_logged: float = 0
+        self._queue_logger = QueueStateLogger(f"Sampling for {self.model_path or self.base_model}")
 
     async def _send_asample_request(
         self,
@@ -99,10 +102,15 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
     ):
         try:
             with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
+                sampling_params_payload = cast(types._SamplingParamsParam, sampling_params.model_dump())
+                stop = sampling_params_payload.get("stop")
+                if isinstance(stop, str):
+                    sampling_params_payload["stop"] = [stop]
+
                 return await client.sampling.asample(
                     num_samples=num_samples,
                     prompt=cast(types._ModelInputParam, prompt.model_dump()),
-                    sampling_params=cast(types._SamplingParamsParam, sampling_params.model_dump()),
+                    sampling_params=sampling_params_payload,
                     model_path=self.model_path if self.model_path is not None else NOT_GIVEN,
                     prompt_logprobs=include_prompt_logprobs,
                     base_model=self.base_model if self.base_model is not None else NOT_GIVEN,
@@ -125,10 +133,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         idempotency_key = self.holder.make_idempotency_key()
         async with self.holder._sample_dispatch_semaphore:
             while True:
-                if (
-                    self.holder._sample_backoff_until is not None
-                    and time.time() < self.holder._sample_backoff_until
-                ):
+                if self.holder._sample_backoff_until is not None and time.time() < self.holder._sample_backoff_until:
                     await asyncio.sleep(1)
                     continue
 
@@ -166,9 +171,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         """Internal method that does the actual API call without retry logic."""
 
         async def _sample_async():
-            return await self._sample_async_impl(
-                prompt, num_samples, sampling_params, include_prompt_logprobs
-            )
+            return await self._sample_async_impl(prompt, num_samples, sampling_params, include_prompt_logprobs)
 
         @capture_exceptions(fatal=True)
         async def _sample_async_with_retries() -> types.SampleResponse:
@@ -189,9 +192,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         )
 
     @capture_exceptions(fatal=True)
-    def compute_logprobs(
-        self, prompt: types.ModelInput
-    ) -> ConcurrentFuture[Sequence[float | None]]:
+    def compute_logprobs(self, prompt: types.ModelInput) -> ConcurrentFuture[Sequence[float | None]]:
         async def _compute_logprobs_async() -> Sequence[float | None]:
             sample_res = await self._sample_async_impl(
                 prompt,
@@ -214,20 +215,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         return self.holder.get_telemetry()
 
     def on_queue_state_change(self, queue_state: QueueState) -> None:
-        QUEUE_STATE_LOG_INTERVAL = 60
-        if queue_state == QueueState.ACTIVE:
-            return
-        if time.time() - self._last_queue_state_logged < QUEUE_STATE_LOG_INTERVAL:
-            return
-        if queue_state == QueueState.PAUSED_RATE_LIMIT:
-            reason = "concurrent LoRA rate limit hit"
-        elif queue_state == QueueState.IN_QUEUE:  # 改：从 PAUSED_CAPACITY 改为 IN_QUEUE
-            reason = "request is in queue, waiting for available resources"  # 改：更友好的消息
-        else:
-            reason = "unknown"
-        self._last_queue_state_logged = time.time()
-
-        logger.warning(f"Sampling is paused for {self.model_path}. Reason: {reason}")
+        self._queue_logger.log(queue_state)
 
 
 @lru_cache(maxsize=100)

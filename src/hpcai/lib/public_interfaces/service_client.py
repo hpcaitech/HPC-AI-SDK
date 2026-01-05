@@ -9,13 +9,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import time
 from typing import TYPE_CHECKING, Any, cast
-
-import hpcai
 
 from hpcai import types
 from hpcai.lib.client_connection_pool_type import ClientConnectionPoolType
@@ -23,7 +20,12 @@ from hpcai.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from hpcai.lib.telemetry import Telemetry, capture_exceptions
 from hpcai.lib.telemetry_provider import TelemetryProvider
 
-from ..api_future_impl import _APIFuture
+from ..api_future_impl import (
+    QueueState,
+    QueueStateLogger,
+    QueueStateObserver,
+    _APIFuture,
+)
 from ..internal_client_holder import InternalClientHolder
 from ..retry_handler import RetryConfig
 from ..sync_only import sync_only
@@ -49,7 +51,7 @@ class ModelCreationCancelled(Exception):
         return "ModelCreationCancelled()"
 
 
-class ServiceClient(TelemetryProvider):
+class ServiceClient(TelemetryProvider, QueueStateObserver):
     """The ServiceClient is the main entry point for the HPC-AI API. It provides methods to:
     - Query server capabilities and health status
     - Generate TrainingClient instances for model training workflows
@@ -80,6 +82,10 @@ class ServiceClient(TelemetryProvider):
             default_headers=default_headers,
             _strict_response_validation=strict_validation,
         )
+        self._queue_logger = QueueStateLogger("Model creation")
+
+    def on_queue_state_change(self, queue_state: QueueState) -> None:
+        self._queue_logger.log(queue_state)
 
     def _get_server_capabilities_submit(
         self,
@@ -107,44 +113,30 @@ class ServiceClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[types.ModelID]:
         async def _create_model_async():
             start_time = time.time()
-            retry_count = 0
-            QUEUE_RETRY_INTERVAL = 120
 
-            while True:
-                try:
-                    with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                        future = await client.models.create(
-                            base_model=base_model,
-                            lora_config=_to_lora_config_params(lora_config)
-                        )
+            async def _send_request() -> types.UntypedAPIFuture:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.models.create(
+                        base_model=base_model, lora_config=_to_lora_config_params(lora_config)
+                    )
 
-                    create_model_response = await _APIFuture(
-                        types.CreateModelResponse,
-                        self.holder,
-                        future,
-                        request_start_time=start_time,
-                        request_type="CreateModel",
-                    ).result_async()
+            try:
+                future = await self.holder.execute_with_retries(_send_request)
 
-                    return create_model_response.model_id
+                create_model_response = await _APIFuture(
+                    types.CreateModelResponse,
+                    self.holder,
+                    future,
+                    request_start_time=start_time,
+                    request_type="CreateModel",
+                    queue_state_observer=self,
+                ).result_async()
 
-                except KeyboardInterrupt:
-                    logger.info("Model creation request cancelled by user.")
-                    raise
+                return create_model_response.model_id
 
-                except hpcai.APIStatusError as e:
-                    if e.status_code == 423:
-                        retry_count += 1
-                        if retry_count == 1:
-                            logger.warning(
-                                "GPU resources are currently at capacity. "
-                                "Your request is in the queue and will be processed once resources become available. "
-                                "(Press Ctrl+C to cancel)"
-                            )
-                        await asyncio.sleep(QUEUE_RETRY_INTERVAL)
-                        continue
-
-                    raise
+            except KeyboardInterrupt:
+                logger.info("Model creation request cancelled by user.")
+                raise
 
         return self.holder.run_coroutine_threadsafe(_create_model_async())
 
@@ -155,13 +147,13 @@ class ServiceClient(TelemetryProvider):
         base_model: str,
         rank: int = 32,
         seed: int | None = None,
-        train_mlp: bool = True,
+        train_mlp: bool = False,
         train_attn: bool = True,
-        train_unembed: bool = True,
+        train_unembed: bool = False,
     ) -> TrainingClient:
-        assert any([train_mlp, train_attn, train_unembed]), (
-            "At least one of train_mlp, train_attn, or train_unembed must be True"
-        )
+        assert any(
+            [train_mlp, train_attn, train_unembed]
+        ), "At least one of train_mlp, train_attn, or train_unembed must be True"
         try:
             model_id = self._create_model_submit(
                 base_model,
@@ -184,13 +176,13 @@ class ServiceClient(TelemetryProvider):
         base_model: str,
         rank: int = 32,
         seed: int | None = None,
-        train_mlp: bool = True,
+        train_mlp: bool = False,
         train_attn: bool = True,
-        train_unembed: bool = True,
+        train_unembed: bool = False,
     ) -> TrainingClient:
-        assert any([train_mlp, train_attn, train_unembed]), (
-            "At least one of train_mlp, train_attn, or train_unembed must be True"
-        )
+        assert any(
+            [train_mlp, train_attn, train_unembed]
+        ), "At least one of train_mlp, train_attn, or train_unembed must be True"
         model_id = await self._create_model_submit(
             base_model,
             types.LoraConfig(
@@ -286,9 +278,7 @@ def _get_default_headers() -> dict[str, str]:
 
     headers["X-Username"] = os.environ.get("USER", "")
 
-    if (
-        client_id := os.environ.get("CLOUDFLARE_ACCESS_CLIENT_ID")
-    ) and "CF-Access-Client-Id" not in headers:
+    if (client_id := os.environ.get("CLOUDFLARE_ACCESS_CLIENT_ID")) and "CF-Access-Client-Id" not in headers:
         headers["CF-Access-Client-Id"] = client_id
     if (
         client_secret := os.environ.get("CLOUDFLARE_ACCESS_CLIENT_SECRET")

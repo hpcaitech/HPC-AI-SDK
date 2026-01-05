@@ -53,6 +53,34 @@ class QueueStateObserver(ABC):
         raise NotImplementedError
 
 
+class QueueStateLogger:
+    """Helper to log queue state changes with a throttle."""
+
+    def __init__(self, owner_name: str, interval: float = 60.0):
+        self.owner_name = owner_name
+        self.interval = interval
+        self._last_logged: float = 0
+
+    def log(self, queue_state: QueueState) -> None:
+        if queue_state == QueueState.ACTIVE:
+            return
+
+        current_time = time.time()
+        if current_time - self._last_logged < self.interval:
+            return
+
+        self._last_logged = current_time
+
+        if queue_state == QueueState.PAUSED_RATE_LIMIT:
+            reason = "concurrent rate limit hit"
+        elif queue_state == QueueState.IN_QUEUE:
+            reason = "request is in queue, waiting for available resources"
+        else:
+            reason = "unknown"
+
+        logger.warning(f"{self.owner_name} is paused. Reason: {reason}")
+
+
 class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
     def __init__(
         self,
@@ -117,9 +145,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                 "X-HpcAI-Request-Type": self.request_type,
             }
             if iteration == 0:
-                headers["X-HpcAI-Create-Promise-Roundtrip-Time"] = str(
-                    self.request_queue_roundtrip_time
-                )
+                headers["X-HpcAI-Create-Promise-Roundtrip-Time"] = str(self.request_queue_roundtrip_time)
 
             # Function hasn't been called yet, execute it now
             try:
@@ -154,7 +180,8 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                 if e.status_code == 408:
                     if self._queue_state_observer is not None:
                         with contextlib.suppress(Exception):
-                            response = e.response.json()
+                            # Use e.body instead of e.response.json() to avoid stream issues
+                            response = e.body if isinstance(e.body, dict) else {}
                             if queue_state_str := response.get("queue_state", None):
                                 if queue_state_str == "active":
                                     queue_state = QueueState.ACTIVE
@@ -164,9 +191,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                                     queue_state = QueueState.IN_QUEUE  # 改：从 PAUSED_CAPACITY 改为 IN_QUEUE
                                 else:
                                     queue_state = QueueState.UNKNOWN
-                                self._queue_state_observer.on_queue_state_change(
-                                    queue_state
-                                )
+                                self._queue_state_observer.on_queue_state_change(queue_state)
                     time.sleep(1)
                     continue
                 if e.status_code == 410:
@@ -176,7 +201,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                 if e.status_code in range(500, 600):
                     # Add exponential backoff for server errors (503, etc.)
                     server_error_retries += 1
-                    delay = min(2 ** server_error_retries, 30)  # Max 30 seconds
+                    delay = min(2**server_error_retries, 30)  # Max 30 seconds
                     await asyncio.sleep(delay)
                     continue
                 raise ValueError(
@@ -236,11 +261,11 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                             "request_type": self.request_type,
                             "exception": str(e),
                             "exception_type": type(e).__name__,
-                            "exception_stack": "".join(
-                                traceback.format_exception(type(e), e, e.__traceback__)
-                            )
-                            if e.__traceback__
-                            else None,
+                            "exception_stack": (
+                                "".join(traceback.format_exception(type(e), e, e.__traceback__))
+                                if e.__traceback__
+                                else None
+                            ),
                             "model_cls": str(self.model_cls),
                             "iteration": iteration,
                             "elapsed_time": current_time - start_time,

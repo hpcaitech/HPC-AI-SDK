@@ -17,8 +17,6 @@ from contextlib import asynccontextmanager
 from functools import cache
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Tuple, cast
 
-import torch
-
 from hpcai import types
 from hpcai.lib.client_connection_pool_type import ClientConnectionPoolType
 from hpcai.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
@@ -28,6 +26,7 @@ from hpcai.types import training_optim_step_params
 
 from ..api_future_impl import (
     QueueState,
+    QueueStateLogger,
     QueueStateObserver,
     _APIFuture,
     _CombinedAPIFuture,
@@ -90,7 +89,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         self._turn_counter: int = 0
         self._turn_waiters: dict[int, asyncio.Event] = {}
 
-        self._last_queue_state_logged: float = 0
+        self._queue_logger = QueueStateLogger(f"Training for {self.model_id}")
 
     # Reserves a request id for a request. Requests are to be executed in the order of request ids.
     def _get_request_id(self) -> int:
@@ -124,30 +123,23 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                 self._turn_waiters[self._turn_counter].set()
 
     def _make_idempotency_key(self, request_id: int) -> str:
-        return self.holder.make_training_client_idempotency_key(
-            self._training_client_id, request_id
-        )
+        return self.holder.make_training_client_idempotency_key(self._training_client_id, request_id)
 
     def _guaranteed_model_id(self) -> types.ModelID:
         assert self.model_id is not None, MODEL_ID_NOT_SET_ERROR
         return self.model_id
 
     def _estimate_number_count(self, datum: types.Datum) -> int:
-        return datum.model_input.length + sum(
-            len(value.data) for _, value in datum.loss_fn_inputs.items()
-        )
+        return datum.model_input.length + sum(len(value.data) for _, value in datum.loss_fn_inputs.items())
 
-    def _chunked_requests_generator(
-        self, data: List[types.Datum]
-    ) -> Generator[List[types.Datum], None, None]:
+    def _chunked_requests_generator(self, data: List[types.Datum]) -> Generator[List[types.Datum], None, None]:
         current_chunk: List[types.Datum] = []
         current_chunk_number_count = 0
 
         for datum in data:
             estimated_number_count = self._estimate_number_count(datum)
             if (
-                len(current_chunk) > 0
-                and current_chunk_number_count + estimated_number_count > MAX_CHUNK_NUMBER_COUNT
+                len(current_chunk) > 0 and current_chunk_number_count + estimated_number_count > MAX_CHUNK_NUMBER_COUNT
             ) or (len(current_chunk) == MAX_CHUNK_LEN):
                 yield current_chunk
                 current_chunk = []
@@ -166,11 +158,9 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         self, request_id: int, model_id: str, data: List[types.Datum], loss_fn: types.LossFnType
     ):
         with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-            future = await  client.training.forward(
+            future = await client.training.forward(
                 model_id=model_id,
-                forward_input=_to_fwdbwd_input_params(
-                    types.ForwardBackwardInput(data=data, loss_fn=loss_fn)
-                ),
+                forward_input=_to_fwdbwd_input_params(types.ForwardBackwardInput(data=data, loss_fn=loss_fn)),
                 idempotency_key=self._make_idempotency_key(request_id),
             )
         if future.model_id is None:
@@ -182,9 +172,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         return future
 
     @capture_exceptions(fatal=True)
-    def forward(
-        self, data: List[types.Datum], loss_fn: types.LossFnType
-    ) -> APIFuture[types.ForwardBackwardOutput]:
+    def forward(self, data: List[types.Datum], loss_fn: types.LossFnType) -> APIFuture[types.ForwardBackwardOutput]:
         requests = self._chunked_requests(data)
 
         @capture_exceptions(fatal=True)
@@ -200,8 +188,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                     # Create new instance if model_id is missing in response
                     if untyped_future.model_id is None:
                         untyped_future = types.UntypedAPIFuture(
-                            request_id=untyped_future.request_id,
-                            model_id=self._guaranteed_model_id()
+                            request_id=untyped_future.request_id, model_id=self._guaranteed_model_id()
                         )
                 api_future = _APIFuture(
                     types.ForwardBackwardOutput,
@@ -231,9 +218,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
             future = await client.training.forward_backward(
                 model_id=model_id,
-                forward_backward_input=_to_fwdbwd_input_params(
-                    types.ForwardBackwardInput(data=data, loss_fn=loss_fn)
-                ),
+                forward_backward_input=_to_fwdbwd_input_params(types.ForwardBackwardInput(data=data, loss_fn=loss_fn)),
                 idempotency_key=self._make_idempotency_key(request_id),
             )
 
@@ -268,15 +253,13 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                     # Create new instance if model_id is missing in response
                     if untyped_future.model_id is None:
                         untyped_future = types.UntypedAPIFuture(
-                            request_id=untyped_future.request_id,
-                            model_id=self._guaranteed_model_id()
-                    )
+                            request_id=untyped_future.request_id, model_id=self._guaranteed_model_id()
+                        )
                     # Create new instance if model_id is missing in response
                     if untyped_future.model_id is None:
                         untyped_future = types.UntypedAPIFuture(
-                            request_id=untyped_future.request_id,
-                            model_id=self._guaranteed_model_id()
-                    )
+                            request_id=untyped_future.request_id, model_id=self._guaranteed_model_id()
+                        )
                 api_future = _APIFuture(
                     types.ForwardBackwardOutput,
                     self.holder,
@@ -302,9 +285,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         self, data: List[types.Datum], loss_fn: CustomLossFnV1
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Synchronous version of forward_backward_custom_async."""
-        return self.holder.run_coroutine_threadsafe(
-            self.forward_backward_custom_async(data, loss_fn)
-        ).result()
+        return self.holder.run_coroutine_threadsafe(self.forward_backward_custom_async(data, loss_fn)).result()
 
     @capture_exceptions(fatal=True)
     async def forward_backward_custom_async(
@@ -386,8 +367,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                 # Create new instance if model_id is missing in response
                 if untyped_future.model_id is None:
                     untyped_future = types.UntypedAPIFuture(
-                        request_id=untyped_future.request_id,
-                        model_id=self._guaranteed_model_id()
+                        request_id=untyped_future.request_id, model_id=self._guaranteed_model_id()
                     )
             return await _APIFuture(
                 types.OptimStepResponse,
@@ -400,9 +380,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
         return self.holder.run_coroutine_threadsafe(_optim_step_async())
 
-    async def optim_step_async(
-        self, adam_params: types.AdamParams
-    ) -> APIFuture[types.OptimStepResponse]:
+    async def optim_step_async(self, adam_params: types.AdamParams) -> APIFuture[types.OptimStepResponse]:
         return self.optim_step(adam_params)
 
     @capture_exceptions(fatal=True)
@@ -425,10 +403,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                 future = await self.holder.execute_with_retries(_send_request)
                 # Create new instance if model_id is missing in response
                 if future.model_id is None:
-                    future = types.UntypedAPIFuture(
-                        request_id=future.request_id,
-                        model_id=self._guaranteed_model_id()
-                    )
+                    future = types.UntypedAPIFuture(request_id=future.request_id, model_id=self._guaranteed_model_id())
             return await _APIFuture(
                 types.SaveWeightsResponse,
                 self.holder,
@@ -463,10 +438,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                 future = await self.holder.execute_with_retries(_send_request)
                 # Create new instance if model_id is missing in response
                 if future.model_id is None:
-                    future = types.UntypedAPIFuture(
-                        request_id=future.request_id,
-                        model_id=self._guaranteed_model_id()
-                    )
+                    future = types.UntypedAPIFuture(request_id=future.request_id, model_id=self._guaranteed_model_id())
             return await _APIFuture(
                 types.LoadWeightsResponse,
                 self.holder,
@@ -501,10 +473,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                 future = await self.holder.execute_with_retries(_send_request)
                 # Create new instance if model_id is missing in response
                 if future.model_id is None:
-                    future = types.UntypedAPIFuture(
-                        request_id=future.request_id,
-                        model_id=self._guaranteed_model_id()
-                    )
+                    future = types.UntypedAPIFuture(request_id=future.request_id, model_id=self._guaranteed_model_id())
             return await _APIFuture(
                 types.SaveWeightsForSamplerResponse,
                 self.holder,
@@ -516,9 +485,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
         return self.holder.run_coroutine_threadsafe(_save_weights_for_sampler_async())
 
-    async def save_weights_for_sampler_async(
-        self, name: str
-    ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
+    async def save_weights_for_sampler_async(self, name: str) -> APIFuture[types.SaveWeightsForSamplerResponse]:
         return self.save_weights_for_sampler(name)
 
     @capture_exceptions(fatal=True)
@@ -594,9 +561,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         return _get_tokenizer(self._guaranteed_model_id(), self.holder)
 
     @capture_exceptions(fatal=True)
-    def create_sampling_client(
-        self, model_path: str, retry_config: RetryConfig | None = None
-    ) -> SamplingClient:
+    def create_sampling_client(self, model_path: str, retry_config: RetryConfig | None = None) -> SamplingClient:
         from .sampling_client import SamplingClient
 
         return SamplingClient(self.holder, model_path=model_path, retry_config=retry_config)
@@ -625,20 +590,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         return self.holder.get_telemetry()
 
     def on_queue_state_change(self, queue_state: QueueState) -> None:
-        QUEUE_STATE_LOG_INTERVAL = 60
-        if queue_state == QueueState.ACTIVE:
-            return
-        if time.time() - self._last_queue_state_logged < QUEUE_STATE_LOG_INTERVAL:
-            return
-        self._last_queue_state_logged = time.time()
-
-        if queue_state == QueueState.PAUSED_RATE_LIMIT:
-            reason = "concurrent models rate limit hit"
-        elif queue_state == QueueState.IN_QUEUE:  # 改：从 PAUSED_CAPACITY 改为 IN_QUEUE
-            reason = "request is in queue, waiting for available resources"  # 改：更友好的消息
-        else:
-            reason = "unknown"
-        logger.warning(f"Training is paused for {self.model_id}. Reason: {reason}")
+        self._queue_logger.log(queue_state)
 
 
 def _to_fwdbwd_input_params(x: types.ForwardBackwardInput) -> types._ForwardBackwardInputParam:
@@ -651,7 +603,13 @@ def _to_adam_params(x: types.AdamParams) -> training_optim_step_params.AdamParam
 
 def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> PreTrainedTokenizer:
     # call get_info on model_id
-    from transformers.models.auto.tokenization_auto import AutoTokenizer
+    try:
+        from transformers.models.auto.tokenization_auto import AutoTokenizer
+    except ModuleNotFoundError as e:
+        raise ModuleNotFoundError(
+            "Missing required dependency 'transformers' (needed by TrainingClient.get_tokenizer()). "
+            "Your installation is likely incomplete; reinstall via `pip install -U transformers`."
+        ) from e
 
     async def _get_info_async():
         with holder.aclient(ClientConnectionPoolType.TRAIN) as client:
