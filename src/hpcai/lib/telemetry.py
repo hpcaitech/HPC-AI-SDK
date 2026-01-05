@@ -301,7 +301,7 @@ def _is_telemetry_enabled() -> bool:
 
     Controlled exclusively via HPCAI_TELEMETRY. Defaults to enabled when unset.
     """
-    telemetry_var = os.environ.get("HPCAI_TELEMETRY", "1")
+    telemetry_var = os.environ.get("HPCAI_TELEMETRY", "0")
     return telemetry_var.lower() in {
         "1",
         "true",
