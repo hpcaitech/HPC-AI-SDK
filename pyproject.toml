@@ -58,6 +58,7 @@ required-version = ">=0.5.0"
 dev-dependencies = [
     "pyright==1.1.402",
     "mypy",
+    "pre-commit",
     "respx",
     "pytest",
     "pytest-asyncio",

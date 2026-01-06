@@ -15,6 +15,10 @@ __all__ = ["Checkpoint", "CheckpointType", "ParsedCheckpointPath"]
 
 CheckpointType = Literal["training", "sampler"]
 
+# Path format constants
+_URI_SCHEME = "hpcai://"
+_ARCHIVE_EXT = ""
+
 
 class Checkpoint(BaseModel):
     checkpoint_id: str
@@ -27,14 +31,16 @@ class Checkpoint(BaseModel):
     """The time when the checkpoint was created"""
 
     checkpoint_path: str
-    """The checkpoint path (must use the hpcai:// protocol)"""
+    """The checkpoint path (hpcai://{run_id}/{type}/{ckpt_id})"""
 
 
 class ParsedCheckpointPath(BaseModel):
-    """Parsed checkpoint path for the hpcai:// protocol."""
+    """Parsed checkpoint path.
+
+    Format: hpcai://{training_run_id}/{checkpoint_type}/{checkpoint_id}"""
 
     checkpoint_path: str
-    """The checkpoint path (hpcai:// protocol)"""
+    """The checkpoint path"""
 
     training_run_id: str
     """The training run ID"""
@@ -46,11 +52,11 @@ class ParsedCheckpointPath(BaseModel):
     """The checkpoint ID"""
 
     @classmethod
-    def from_checkpoint_path(cls, checkpoint_path: str) -> "ParsedCheckpointPath":
+    def parse(cls, path: str) -> "ParsedCheckpointPath":
         """Parse a checkpoint path into its components.
 
         Args:
-            checkpoint_path: Path with the hpcai:// protocol
+            path: Checkpoint path like "hpcai://run_xxx/sampler/step_1000"
 
         Returns:
             ParsedCheckpointPath instance
@@ -58,25 +64,45 @@ class ParsedCheckpointPath(BaseModel):
         Raises:
             ValueError: If path format is invalid
         """
+        path_without_scheme = path.removeprefix(_URI_SCHEME)
+        path_without_ext = path_without_scheme.removesuffix(_ARCHIVE_EXT)
+        parts = path_without_ext.split("/")
 
-        if not checkpoint_path.startswith("hpcai://"):
-            raise ValueError(f"Invalid checkpoint path: {checkpoint_path}. Must start with 'hpcai://'.")
+        if len(parts) < 3:
+            raise ValueError(f"Invalid checkpoint path: {path}")
 
-        parts = checkpoint_path[8:].split("/")
-        if len(parts) != 3:
-            raise ValueError(f"Invalid checkpoint path format: {checkpoint_path}")
-        if parts[1] not in ["weights", "sampler_weights"]:
-            raise ValueError(f"Invalid checkpoint path: {checkpoint_path}")
-        checkpoint_type = "training" if parts[1] == "weights" else "sampler"
+        checkpoint_type = parts[1]
+        if checkpoint_type not in ("training", "sampler"):
+            raise ValueError(f"Invalid checkpoint type: {checkpoint_type}")
+
         return cls(
-            checkpoint_path=checkpoint_path,
+            checkpoint_path=path,
             training_run_id=parts[0],
             checkpoint_type=checkpoint_type,
             checkpoint_id="/".join(parts[2:]),
         )
 
+    # Backward-compat aliases (older SDK versions exposed these helpers)
+    @classmethod
+    def from_checkpoint_path(cls, checkpoint_path: str) -> "ParsedCheckpointPath":
+        """Alias for parse()."""
+        return cls.parse(checkpoint_path)
+
     @classmethod
     def from_hpcai_path(cls, path: str) -> "ParsedCheckpointPath":
-        """Alias for from_checkpoint_path using the hpcai:// protocol."""
+        """Alias for parse()."""
+        return cls.parse(path)
 
-        return cls.from_checkpoint_path(path)
+    def to_uri(self) -> str:
+        """Convert to URI string.
+
+        Returns:
+            URI in format: hpcai://{run_id}/{type}/{ckpt_id}"""
+        return f"{_URI_SCHEME}{self.training_run_id}/{self.checkpoint_type}/{self.checkpoint_id}{_ARCHIVE_EXT}"
+
+    def to_path(self) -> str:
+        """Convert to path string (without URI scheme).
+
+        Returns:
+            Path in format: {run_id}/{type}/{ckpt_id}"""
+        return f"{self.training_run_id}/{self.checkpoint_type}/{self.checkpoint_id}{_ARCHIVE_EXT}"

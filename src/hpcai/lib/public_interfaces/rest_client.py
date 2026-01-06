@@ -13,9 +13,9 @@ import logging
 from concurrent.futures import Future as ConcurrentFuture
 from typing import TYPE_CHECKING
 
-from hpcai import types, NoneType
-from hpcai.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from hpcai import NoneType, types
 from hpcai.lib.client_connection_pool_type import ClientConnectionPoolType
+from hpcai.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from hpcai.lib.telemetry import Telemetry, capture_exceptions
 from hpcai.lib.telemetry_provider import TelemetryProvider
 
@@ -58,10 +58,9 @@ class RestClient(TelemetryProvider):
     def __init__(self, holder: InternalClientHolder):
         self.holder = holder
 
-    def _get_training_run_submit(
-        self, training_run_id: types.ModelID
-    ) -> AwaitableConcurrentFuture[types.TrainingRun]:
+    def _get_training_run_submit(self, training_run_id: types.ModelID) -> AwaitableConcurrentFuture[types.TrainingRun]:
         """Internal method to submit get model request."""
+
         async def _get_training_run_async() -> types.TrainingRun:
             async def _send_request() -> types.TrainingRun:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -110,36 +109,35 @@ class RestClient(TelemetryProvider):
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def get_training_run_by_checkpoint_path(
-        self, checkpoint_path: str
-    ) -> ConcurrentFuture[types.TrainingRun]:
+    def get_training_run_by_checkpoint_path(self, checkpoint_path: str) -> ConcurrentFuture[types.TrainingRun]:
         """Get training run info based on a checkpoint path.
 
         Args:
-            checkpoint_path: The checkpoint path (must use the `hpcai://` scheme)
+            checkpoint_path: The checkpoint path (format: hpcai://{run_id}/{type}/{ckpt_id})
 
         Returns:
             A Future containing the training run information
 
         Example:
-            >>> future = rest_client.get_training_run_by_checkpoint_path("hpcai://run-id/weights/checkpoint-001")
+            >>> future = rest_client.get_training_run_by_checkpoint_path("hpcai://run-id/sampler/checkpoint-001")
             >>> response = future.result()
             >>> print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
         """
-        parsed_checkpoint_path = types.ParsedCheckpointPath.from_checkpoint_path(checkpoint_path)
+        parsed_checkpoint_path = types.ParsedCheckpointPath.parse(checkpoint_path)
         return self.get_training_run(parsed_checkpoint_path.training_run_id)
 
     @capture_exceptions(fatal=True)
     async def get_training_run_by_checkpoint_path_async(self, checkpoint_path: str) -> types.TrainingRun:
         """Async version of get_training_run_by_checkpoint_path."""
 
-        parsed_checkpoint_path = types.ParsedCheckpointPath.from_checkpoint_path(checkpoint_path)
+        parsed_checkpoint_path = types.ParsedCheckpointPath.parse(checkpoint_path)
         return await self.get_training_run_async(parsed_checkpoint_path.training_run_id)
 
     def _list_training_runs_submit(
         self, limit: int = 20, offset: int = 0
     ) -> AwaitableConcurrentFuture[types.TrainingRunsResponse]:
         """Internal method to submit list training runs request."""
+
         async def _list_training_runs_async() -> types.TrainingRunsResponse:
             async def _send_request() -> types.TrainingRunsResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -157,9 +155,7 @@ class RestClient(TelemetryProvider):
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def list_training_runs(
-        self, limit: int = 20, offset: int = 0
-    ) -> ConcurrentFuture[types.TrainingRunsResponse]:
+    def list_training_runs(self, limit: int = 20, offset: int = 0) -> ConcurrentFuture[types.TrainingRunsResponse]:
         """List training runs with pagination support.
 
         Args:
@@ -180,9 +176,7 @@ class RestClient(TelemetryProvider):
         return self._list_training_runs_submit(limit, offset).future()
 
     @capture_exceptions(fatal=True)
-    async def list_training_runs_async(
-        self, limit: int = 20, offset: int = 0
-    ) -> types.TrainingRunsResponse:
+    async def list_training_runs_async(self, limit: int = 20, offset: int = 0) -> types.TrainingRunsResponse:
         """Async version of list_training_runs.
 
         Args:
@@ -205,6 +199,7 @@ class RestClient(TelemetryProvider):
         self, training_run_id: types.ModelID
     ) -> AwaitableConcurrentFuture[types.CheckpointsListResponse]:
         """Internal method to submit list model checkpoints request."""
+
         async def _list_checkpoints_async():
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -260,6 +255,7 @@ class RestClient(TelemetryProvider):
         self, training_run_id: types.ModelID, checkpoint_id: str
     ) -> AwaitableConcurrentFuture[bytes]:
         """Internal method to submit download checkpoint archive request."""
+
         async def _download_checkpoint_archive_async():
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -296,9 +292,7 @@ class RestClient(TelemetryProvider):
         return self._download_checkpoint_archive_submit(training_run_id, checkpoint_id).future()
 
     @capture_exceptions(fatal=True)
-    async def download_checkpoint_archive_async(
-        self, training_run_id: types.ModelID, checkpoint_id: str
-    ) -> bytes:
+    async def download_checkpoint_archive_async(self, training_run_id: types.ModelID, checkpoint_id: str) -> bytes:
         """Async version of download_checkpoint_archive.
 
         Args:
@@ -350,14 +344,14 @@ class RestClient(TelemetryProvider):
     def delete_checkpoint_by_checkpoint_path(self, checkpoint_path: str) -> ConcurrentFuture[None]:
         """Delete a checkpoint referenced by its checkpoint path."""
 
-        parsed_path = types.ParsedCheckpointPath.from_checkpoint_path(checkpoint_path)
+        parsed_path = types.ParsedCheckpointPath.parse(checkpoint_path)
         return self._delete_checkpoint_submit(parsed_path.training_run_id, parsed_path.checkpoint_id).future()
 
     @capture_exceptions(fatal=True)
     async def delete_checkpoint_by_checkpoint_path_async(self, checkpoint_path: str) -> None:
         """Async version of delete_checkpoint_by_checkpoint_path."""
 
-        parsed_path = types.ParsedCheckpointPath.from_checkpoint_path(checkpoint_path)
+        parsed_path = types.ParsedCheckpointPath.parse(checkpoint_path)
         await self._delete_checkpoint_submit(parsed_path.training_run_id, parsed_path.checkpoint_id)
 
     def get_telemetry(self) -> Telemetry | None:
@@ -365,22 +359,18 @@ class RestClient(TelemetryProvider):
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def download_checkpoint_archive_by_checkpoint_path(
-        self, checkpoint_path: str
-    ) -> ConcurrentFuture[bytes]:
+    def download_checkpoint_archive_by_checkpoint_path(self, checkpoint_path: str) -> ConcurrentFuture[bytes]:
         """Download checkpoint as a tar.gz archive using its checkpoint path."""
 
-        parsed_path = types.ParsedCheckpointPath.from_checkpoint_path(checkpoint_path)
+        parsed_path = types.ParsedCheckpointPath.parse(checkpoint_path)
         return self._download_checkpoint_archive_submit(parsed_path.training_run_id, parsed_path.checkpoint_id).future()
 
     @capture_exceptions(fatal=True)
-    async def download_checkpoint_archive_by_checkpoint_path_async(
-        self, checkpoint_path: str
-    ) -> bytes:
+    async def download_checkpoint_archive_by_checkpoint_path_async(self, checkpoint_path: str) -> bytes:
         """Async version of download_checkpoint_archive_by_checkpoint_path."""
 
-        parsed_path = types.ParsedCheckpointPath.from_checkpoint_path(checkpoint_path)
+        parsed_path = types.ParsedCheckpointPath.parse(checkpoint_path)
         return await self._download_checkpoint_archive_submit(parsed_path.training_run_id, parsed_path.checkpoint_id)
 
     # Legacy helpers were removed during rebranding. All checkpoint operations
-    # now rely on `hpcai://` checkpoint paths exclusively.
+    # now use unified path format: hpcai://{run_id}/{type}/{ckpt_id}
