@@ -7,7 +7,7 @@
 import logging
 import time
 from concurrent.futures import Future
-
+import os
 import chz
 import datasets
 import hpcai
@@ -23,19 +23,21 @@ from hpcai.cookbook.utils import ml_log
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARN)
 
+os.environ["HPCAI_BASE_URL"] = "https://cloud.luchentech.com/finetunesdk"
+assert os.environ.get("HPCAI_API_KEY", None) is not None, "HPCAI_API_KEY must be set"
 
 @chz.chz
 class Config:
-    base_url: str | None = None
+    base_url: str | None = "https://cloud.luchentech.com/finetunesdk"
     log_path: str = "/tmp/hpcai-examples/rl-loop"
-    model_name: str = "meta-llama/Llama-3.1-8B"
-    batch_size: int = 128
-    group_size: int = 16
-    learning_rate: float = 4e-5
-    max_length: int = 32768
+    model_name: str = "Qwen/Qwen3-4B"
+    batch_size: int = 32
+    group_size: int = 8
+    learning_rate: float = 1e-5
+    max_length: int = 1280
     lora_rank: int = 32
     save_every: int = 20  # 0 = disabled
-    max_tokens: int = 256
+    max_tokens: int = 1024
 
 
 def get_reward(response: str, answer: str) -> float:
@@ -85,7 +87,8 @@ def main(config: Config):
     n_train_batches = len(train_dataset) // config.batch_size
 
     # Setup training client
-    service_client = hpcai.ServiceClient(base_url=config.base_url)
+    service_client = hpcai.ServiceClient()
+    print("Service client initialized.")
 
     resume_info = checkpoint_utils.get_last_checkpoint(config.log_path)
     if resume_info:
@@ -99,6 +102,7 @@ def main(config: Config):
             base_model=config.model_name, rank=config.lora_rank
         )
         start_batch = 0
+    print("Training client initialized.")
 
     sampling_params = hpcai.types.SamplingParams(
         max_tokens=config.max_tokens,
@@ -138,7 +142,7 @@ def main(config: Config):
         batch_rows = train_dataset.select(range(batch_start, batch_end))
 
         sampling_path = training_client.save_weights_for_sampler(name=f"{step:06d}").result().path
-        sampling_client = service_client.create_sampling_client(model_path=sampling_path)
+        sampling_client = service_client.create_sampling_client(base_model=config.model_name, model_path=sampling_path)
         # Set up sampling parameters
 
         training_datums: list[types.Datum] = []

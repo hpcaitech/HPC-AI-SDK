@@ -14,11 +14,11 @@ from hpcai.cookbook.rl import train
 
 
 def build_config_blueprint() -> chz.Blueprint[train.Config]:
-    model_name = "meta-llama/Llama-3.1-8B"
+    model_name = "Qwen/Qwen3-4B"
     renderer_name = model_info.get_recommended_renderer_name(model_name)
     builder = Gsm8kDatasetBuilder(
-        batch_size=128,
-        group_size=16,
+        batch_size=32,
+        group_size=8,
         renderer_name=renderer_name,
         model_name_for_tokenizer=model_name,
     )

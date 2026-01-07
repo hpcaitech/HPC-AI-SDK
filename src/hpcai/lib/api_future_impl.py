@@ -153,7 +153,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                     response = await client.futures.with_raw_response.retrieve(
                         request_id=self.request_id,
                         model_id=self.untyped_future.model_id if self.untyped_future.model_id else NOT_GIVEN,
-                        timeout=45,
+                        timeout=300,
                         extra_headers=headers,
                         max_retries=0,
                     )
