@@ -1,6 +1,6 @@
 [project]
 name = "hpcai"
-version = "0.1.5"
+version = "0.2.0"
 description = "Python SDK for HPC-AI cloud GPU fine-tuning"
 readme = "README.md"
 license = "Apache-2.0"
@@ -9,21 +9,38 @@ authors = [
 ]
 keywords = ["hpcai", "machine learning", "gpu", "fine-tuning", "distributed training"]
 dependencies = [
-    "httpx[http2]>=0.23.0, <1",
-    "pydantic>=1.9.0, <3",
-    "typing-extensions>=4.10, <5",
-    "anyio>=3.5.0, <5",
-    "distro>=1.7.0, <2",
+    # Core HTTP client with HTTP/2 support
+    "httpx[http2]>=0.23.0,<1",
+    "blobfile",
+    # Data validation and serialization
+    "pydantic>=1.9.0,<3",
+    # Type extensions for better type hints
+    "typing-extensions>=4.10,<5",
+    # Async I/O utilities
+    "anyio>=3.5.0,<5",
+    # System information utilities
+    "distro>=1.7.0,<2",
+    # Sniff out which async library is being used
     "sniffio",
     # Scientific computing
-    "numpy>=1.24.0",
+    "numpy>=1.24.0,<2.0.0",
     # Deep learning framework
     "torch>=2.0.0",
-    # Transformers library for tokenizers
+    # Cookbook dependencies
     "transformers>=4.30.0",
     "datasets",
     "nest_asyncio",
     "wandb",
+    "pylatexenc",
+    "termcolor",
+    "chz",
+    # Optional logging backends
+    "logtree",
+    "neptune_scale",
+    "trackio",
+    # AIOHTTP support
+    "aiohttp",
+    "httpx_aiohttp>=0.1.8",
 ]
 requires-python = ">= 3.9"
 classifiers = [
@@ -48,8 +65,6 @@ Homepage = "https://hpc-ai.com"
 Repository = "https://github.com/hpcaitech/HPC-AI-SDK"
 Documentation = "https://www.hpc-ai.com/doc"
 
-[project.optional-dependencies]
-aiohttp = ["aiohttp", "httpx_aiohttp>=0.1.8"]
 
 [tool.uv]
 managed = true

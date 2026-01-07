@@ -11,12 +11,8 @@ we recommend using conda to install the SDK.
 ```bash
 conda create -n hpcai python=3.12 -y
 conda activate hpcai
-git clone https://github.com/hpcaitech/HPC-AI-SDK
-cd HPC-AI-SDK
-pip install .
+pip install hpcai
 ```
-
-We only support installing from source currently, we will release official PIP package soon.
 
 ## Quick Start
 
@@ -67,6 +63,16 @@ Configure the SDK using these environment variables:
 ## Usage Example
 
 [A usage example for finetune "Qwen3-8B" model](./Usage.md).
+
+## Cookbook
+
+We provide a cookbook for you to use the SDK to train your models. Code can be found [here](./src/hpcai/cookbook).
+
+Clone the repo to check more detail usage about the cookbook.
+```
+git clone https://github.com/hpcaitech/HPC-AI-SDK
+cd HPC-AI-SDK/src/hpcai/cookbook
+```
 
 ## Documentation
 
