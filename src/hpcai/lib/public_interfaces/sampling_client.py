@@ -131,7 +131,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         include_prompt_logprobs: bool,
     ) -> types.SampleResponse:
         idempotency_key = self.holder.make_idempotency_key()
-        print(idempotency_key)
         async with self.holder._sample_dispatch_semaphore:
             while True:
                 if (
