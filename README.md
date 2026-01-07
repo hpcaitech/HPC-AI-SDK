@@ -6,11 +6,23 @@ The HPC-AI Python SDK provides a powerful interface for distributed GPU training
 
 ## Installation
 
-we recommend using conda to install the SDK.
+We recommend using conda to install the SDK. 
 
 ```bash
 conda create -n hpcai python=3.12 -y
 conda activate hpcai
+```
+We support both install from source and from pypi. We recommend install from source in case pypi package is not up to date.
+
+Install from source:
+```bash
+git clone https://github.com/hpcaitech/HPC-AI-SDK.git
+cd HPC-AI-SDK
+pip install -e .
+```
+
+Install from pypi:
+```bash
 pip install hpcai
 ```
 
