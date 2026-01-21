@@ -97,7 +97,7 @@ class InspectEvaluator(SamplingClientEvaluator):
             debug_errors=self.config.debug_errors,
             # Never retry - the hpcai SDK is doing this for us already
             retry_on_error=0,
-            # Although Tinker sampling tries very hard to only throw unrecoverable failures,
+            # Although sampling tries very hard to only throw unrecoverable failures,
             # the inspect evaluation can still fail if e.g. the parser returns an error for
             # a given sample.
             fail_on_error=False,

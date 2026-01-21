@@ -41,6 +41,7 @@ dependencies = [
     # AIOHTTP support
     "aiohttp",
     "httpx_aiohttp>=0.1.8",
+    "torchvision",
 ]
 requires-python = ">= 3.9"
 classifiers = [

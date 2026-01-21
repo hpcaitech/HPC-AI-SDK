@@ -12,70 +12,209 @@ Use viz_sft_dataset to visualize the output of different renderers.
 import json
 import logging
 import re
+import urllib.request
 from datetime import datetime
 from enum import StrEnum
-from typing import Callable, NotRequired, TypedDict
+from typing import NotRequired, Optional, TypedDict, Literal, Protocol, cast
+from PIL import Image
 
 import hpcai
 import torch
+import pydantic
+
+import io
 
 from hpcai.cookbook.tokenizer_utils import Tokenizer
+from hpcai.cookbook.image_processing_utils import ImageProcessor
 
 logger = logging.getLogger(__name__)
 
+# Tool types are based on kosong (https://github.com/MoonshotAI/kosong).
 
-class ToolCall(TypedDict):
-    name: str
-    # Each argument is a stringified JSON object
-    args: dict[str, str]
+
+class StrictBase(pydantic.BaseModel):
+    """
+    Pydantic base class that's immutable and doesn't silently ignore extra fields.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True, extra="forbid")
+
+    def __str__(self) -> str:
+        return repr(self)
+
+
+class ToolCall(StrictBase):
+    """
+    Structured tool invocation following OpenAI/kosong format.
+
+    This represents a request to invoke a tool/function. The structure follows
+    the OpenAI function calling format for compatibility with various LLM APIs.
+
+    Example:
+        tool_call = ToolCall(
+            function=ToolCall.FunctionBody(
+                name="search",
+                arguments='{"query_list": ["python async", "pydantic validation"]}'
+            ),
+            id="call_abc123"
+        )
+    """
+
+    class FunctionBody(pydantic.BaseModel):
+        """
+        Tool call function body containing the tool name and arguments.
+
+        The arguments field must be a valid JSON string that will be parsed
+        by the tool implementation.
+        """
+
+        name: str
+        """The name of the tool to be called."""
+        arguments: str
+        """Arguments of the tool call in JSON string format."""
+
+    type: Literal["function"] = "function"
+    """Tool call type, must be 'function' for compatibility."""
+
+    id: str | None = None
+    """Optional unique identifier for tracking this specific tool call."""
+
+    function: FunctionBody
+    """The function body containing tool name and arguments."""
+
+
+class ToolOk(StrictBase):
+    """
+    Successful tool execution result.
+
+    Used to indicate that a tool call completed successfully, with
+    the main output and optional metadata fields.
+    """
+
+    output: str
+    """The main output/result from the tool execution."""
+
+    message: str = ""
+    """Optional human-readable message about the execution."""
+
+    brief: str = ""
+    """Optional brief summary of the result for logging."""
+
+
+class ToolError(StrictBase):
+    """
+    Tool execution error result.
+
+    Used to indicate that a tool call failed or encountered an error,
+    with details about what went wrong.
+    """
+
+    output: str = ""
+    """Any partial output that was generated before the error."""
+
+    message: str = ""
+    """Error message describing what went wrong."""
+
+    brief: str = ""
+    """Brief error summary for logging."""
+
+
+ToolReturnType = ToolOk | ToolError
+"""Union type for tool execution results - either success or error."""
+
+
+class ToolResult(StrictBase):
+    """
+    Complete tool execution result with tracking ID.
+
+    Wraps the actual result (ToolOk or ToolError) with the corresponding
+    tool call ID for correlation in multi-tool scenarios.
+
+    Note: This class is defined for future use in handling multiple
+    concurrent tool calls with result correlation.
+    """
+
+    tool_call_id: str | None
+    """ID of the tool call this result corresponds to."""
+
+    result: ToolReturnType
+    """The actual execution result (success or error)."""
+
+
+class TextPart(TypedDict):
+    """
+    Container for a text part in a multimodal message.
+
+    Args:
+
+    type: Literal['text']
+        The type of the content part, which must be text in this case.
+    text: str
+        The string content of the content part.
+    """
+
+    type: Literal["text"]
+    text: str
+
+
+class ImagePart(TypedDict):
+    """
+    Container for an image part in a multimodal message.
+
+    Args:
+
+    type: Literal['image']
+        The type of the content part, which must be image in this case.
+    image: str | Image.Image
+        Either a url, data URL, or PIL image.
+    """
+
+    type: Literal["image"]
+    image: str | Image.Image
+
+
+# Container for a part of a multimodal message content
+ContentPart = TextPart | ImagePart
 
 
 # NOTE: we use a broad type definition for the role to be flexible
 # Common roles are "user", "assistant", "system", "tool"
 Role = str
 
+# Content is a string or a list of parts
+Content = str | list[ContentPart]
+
 
 class Message(TypedDict):
+    """
+    Container for a single turn in a multi-turn conversation.
+
+    Args:
+
     role: Role
-    content: str
+        String that denotes the source of the message, typically system, user, assistant, and tool.
+    content: Content
+        Content of the message, can be a string, or a list of ContentPart.
+    tool_calls: NotRequired[list[ToolCall]]
+        Optional sequence of tool calls generated by the model.
+    thinking: NotRequired[str]
+        Optional thinking produced by the model before its final response.
+    trainable: NotRequired[bool]
+        Optional indicator whether this message should contribute to the training loss.
+
+    """
+
+    role: Role
+    content: Content
+
     tool_calls: NotRequired[list[ToolCall]]
     thinking: NotRequired[str]
     trainable: NotRequired[bool]
+    tool_call_id: NotRequired[str]
+    name: NotRequired[str]
 
 
-class TrainOnWhat(StrEnum):
-    LAST_ASSISTANT_MESSAGE = "last_assistant_message"
-    ALL_ASSISTANT_MESSAGES = "all_assistant_messages"
-    ALL_MESSAGES = "all_messages"
-    ALL_TOKENS = "all_tokens"
-    ALL_USER_AND_SYSTEM_MESSAGES = "all_user_and_system_messages"
-    CUSTOMIZED = "customized"
-
-
-class Renderer:
-    def __init__(self, tokenizer: Tokenizer):
-        self.tokenizer = tokenizer
-
-    def build_supervised_example(
-        self,
-        messages: list[Message],
-        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        raise NotImplementedError
-
-    def build_generation_prompt(
-        self, messages: list[Message], role: Role = "assistant", prefill: str | None = None
-    ) -> hpcai.ModelInput:
-        raise NotImplementedError
-
-    def get_stop_sequences(self) -> list[str] | list[int]:
-        raise NotImplementedError
-
-    def parse_response(self, response: list[int]) -> tuple[Message, bool]:
-        raise NotImplementedError
-
-
-def ensure_text(content) -> str:
+def ensure_text(content: Content) -> str:
     """
     Assert that content is text-only and return it as a string.
 
@@ -88,6 +227,207 @@ def ensure_text(content) -> str:
     if len(content) == 1 and content[0]["type"] == "text":
         return content[0]["text"]
     raise ValueError(f"Expected text content, got multimodal content with {len(content)} parts")
+
+def get_text_content(message: Message) -> str:
+    """Extract text content from message, stripping thinking parts.
+
+    Use this after parse_response when you only need the text output,
+    ignoring any thinking/reasoning content.
+    """
+    content = message["content"]
+    if isinstance(content, str):
+        return content
+    return "".join(p["text"] for p in content if p["type"] == "text")
+
+
+def _tool_call_payload(tool_call: ToolCall) -> dict[str, object]:
+    """Minimal JSON payload for embedding in <tool_call> blocks."""
+    # Convert from nested structure to flat format for compatibility
+    return {
+        "name": tool_call.function.name,
+        "args": json.loads(tool_call.function.arguments),
+    }
+
+
+class RenderedMessage(TypedDict):
+    """
+    Container for parts of a rendered message, for masking.
+
+    Args:
+
+    prefix: NotRequired[hpcai.EncodedTextChunk]
+        Message header that typically includes the speaker's role in the conversation.
+    content: list[hpcai.ModelInputChunk]
+        Inner parts of the message that may include spans of image and text.
+    suffix: NotRequired[hpcai.EncodedTextChunk]
+        Message header that typically includes the turn stop token.
+
+    """
+
+    prefix: NotRequired[hpcai.EncodedTextChunk]
+    content: list[hpcai.ModelInputChunk]
+    suffix: NotRequired[hpcai.EncodedTextChunk]
+
+
+class TrainOnWhat(StrEnum):
+    LAST_ASSISTANT_MESSAGE = "last_assistant_message"
+    ALL_ASSISTANT_MESSAGES = "all_assistant_messages"
+    ALL_MESSAGES = "all_messages"
+    ALL_TOKENS = "all_tokens"
+    ALL_USER_AND_SYSTEM_MESSAGES = "all_user_and_system_messages"
+    CUSTOMIZED = "customized"
+
+
+class Renderer(Protocol):
+    """
+    Render a message list into training and sampling prompts for language models.
+    """
+
+    tokenizer: Tokenizer
+
+    def __init__(self, tokenizer: Tokenizer):
+        self.tokenizer = tokenizer
+
+    def _preprocess_message_parts(self, message: Message) -> list[ImagePart | TextPart]:
+        return (
+            message["content"]
+            if isinstance(message["content"], list)
+            else [TextPart(type="text", text=message["content"])]
+        )
+
+    @property
+    def _bos_tokens(self) -> list[int]:
+        return []
+
+    def get_stop_sequences(self) -> list[str] | list[int]:
+        raise NotImplementedError
+
+    def render_message(self, idx: int, message: Message, is_last: bool = False) -> RenderedMessage:
+        raise NotImplementedError
+
+    def parse_response(self, response: list[int]) -> tuple[Message, bool]:
+        raise NotImplementedError
+
+    def build_generation_prompt(
+        self, messages: list[Message], role: Role = "assistant", prefill: str | None = None
+    ) -> hpcai.ModelInput:
+        """
+        Generates tokens for sampling from the model.
+
+        Args:
+            messages: a list of messages to render.
+            role: the role of the partial message to be completed.
+            prefill: an optional string to prefill in the model's generation.
+        """
+
+        chunks: list[hpcai.types.ModelInputChunk] = []
+        if self._bos_tokens:
+            chunks.append(hpcai.types.EncodedTextChunk(tokens=self._bos_tokens))
+        for idx, message in enumerate(messages):
+            rendered_message = self.render_message(idx, message)
+            ob_chunk = rendered_message.get("prefix")
+            action_chunks = rendered_message["content"]
+            if ob_chunk:
+                chunks.append(ob_chunk)
+            chunks.extend([x for x in action_chunks if x])
+        new_partial_message = Message(role=role, content="")
+        rendered_message = self.render_message(len(messages), new_partial_message)
+        ob_chunk = rendered_message.get("prefix")
+        if ob_chunk:
+            chunks.append(ob_chunk)
+        if prefill:
+            chunks.append(
+                hpcai.types.EncodedTextChunk(
+                    tokens=self.tokenizer.encode(prefill, add_special_tokens=False)
+                )
+            )
+        return hpcai.ModelInput(chunks=chunks)
+
+    def build_supervised_example(
+        self,
+        messages: list[Message],
+        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
+    ) -> tuple[hpcai.ModelInput, torch.Tensor]:
+        """
+        Generates tokens and weights (for SFT) in the most standard way; by concatenating
+        together tokens and weights for each message.
+
+        Args:
+            messages: a list of messages to render.
+            train_on_what: an enum that controls how the weights are assigned to the tokens.
+                - TrainOnWhat.LAST_ASSISTANT_MESSAGE: only the last assistant message is used for training
+                - TrainOnWhat.ALL_ASSISTANT_MESSAGES: all assistant messages are used for training
+                - TrainOnWhat.ALL_MESSAGES: all messages are used for training
+                - TrainOnWhat.ALL_TOKENS: all tokens are used for training
+                - TrainOnWhat.ALL_USER_AND_SYSTEM_MESSAGES: all user and system messages are used for training
+                - TrainOnWhat.CUSTOMIZED: each message has a trainable field, and the weights are assigned based on the trainable field
+
+        Returns:
+            A tuple of two tensors:
+                - model_input: the hpcai ModelInput for your model
+                - weights: a tensor of weights
+        """
+
+        model_input_chunks_weights: list[tuple[hpcai.types.ModelInputChunk, float]] = []
+        if self._bos_tokens:
+            model_input_chunks_weights.append(
+                (hpcai.types.EncodedTextChunk(tokens=self._bos_tokens), 0.0)
+            )
+
+        for idx, message in enumerate(messages):
+            if train_on_what == TrainOnWhat.CUSTOMIZED:
+                assert "trainable" in message, (
+                    "When using CUSTOMIZED train_on_what, each message must have a trainable field: True if loss is applied on this message, False otherwise"
+                )
+            else:
+                assert "trainable" not in message, (
+                    "When using non-CUSTOMIZED train_on_what, each message must not have a trainable field. Either change train_on_what to CUSTOMIZED or remove the trainable field from the message"
+                )
+
+            is_last_message = idx == len(messages) - 1
+            is_assistant = message["role"] == "assistant"
+            is_user_or_system = message["role"] in ["user", "system"]
+
+            # only apply weight to observation part if train_on_what is ALL_TOKENS
+            rendered_message = self.render_message(idx, message, is_last=is_last_message)
+            ob_part = rendered_message.get("prefix")
+            action_parts = rendered_message.get("content")
+            action_tail = rendered_message.get("suffix")
+
+            ob_weight = int(train_on_what == TrainOnWhat.ALL_TOKENS)
+            if ob_part:
+                model_input_chunks_weights += [(ob_part, ob_weight)]
+
+            match train_on_what:
+                case TrainOnWhat.LAST_ASSISTANT_MESSAGE:
+                    action_has_weight = is_last_message and is_assistant
+                case TrainOnWhat.ALL_ASSISTANT_MESSAGES:
+                    action_has_weight = is_assistant
+                case TrainOnWhat.ALL_MESSAGES:
+                    action_has_weight = True
+                case TrainOnWhat.ALL_TOKENS:
+                    action_has_weight = True
+                case TrainOnWhat.ALL_USER_AND_SYSTEM_MESSAGES:
+                    action_has_weight = is_user_or_system
+                case TrainOnWhat.CUSTOMIZED:
+                    action_has_weight = message.get("trainable", False)
+                case _:
+                    raise ValueError(f"Unknown train_on_what: {train_on_what}")
+
+            model_input_chunks_weights += [
+                (action_part, int(action_has_weight)) for action_part in action_parts if action_part
+            ]
+
+            # action tail is effectively the stop_token and the start token for the next turn
+            # e.g. \n\nUser:
+            if is_last_message and action_tail:
+                model_input_chunks_weights += [(action_tail, int(action_has_weight))]
+
+        weights_data = [w for chunk, w in model_input_chunks_weights for _ in range(chunk.length)]
+        weights_tensor = torch.tensor(weights_data)
+
+        model_input_chunks = [chunk for chunk, _ in model_input_chunks_weights]
+        return hpcai.ModelInput(chunks=model_input_chunks), weights_tensor
 
 
 def tokens_weights_from_strings_weights(
@@ -102,85 +442,6 @@ def tokens_weights_from_strings_weights(
     tokens = torch.cat([torch.tensor(chunk) for chunk in token_chunks])
     assert tokens.dtype == torch.int64
     return tokens, weights
-
-
-def build_supervised_example(
-    start_tokens: list[int],
-    render_message: Callable[[int, Message], tuple[list[int], list[int], list[int]]],
-    messages: list[Message],
-    train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Generates tokens and weights (for SFT) in the most standard way; by concatenating
-    together tokens and weights for each message.
-
-    Args:
-        start_tokens: a list of tokens that are added at the beginning of the sequence.
-        render_message: a function that takes an index and a message and returns a tuple of three lists of tokens:
-            - ob_part: tokens for the observation part of the message
-            - action_part: tokens for the action part of the message
-            - action_tail: tokens that are generated by the assistant in this message, which are also
-                part of the ob part of the next message. (Only relevant for some renderers, such as RoleColonRenderer)
-        train_on_what: an enum that controls how the weights are assigned to the tokens.
-            - TrainOnWhat.LAST_ASSISTANT_MESSAGE: only the last assistant message is used for training
-            - TrainOnWhat.ALL_ASSISTANT_MESSAGES: all assistant messages are used for training
-            - TrainOnWhat.ALL_MESSAGES: all messages are used for training
-            - TrainOnWhat.ALL_TOKENS: all tokens are used for training
-            - TrainOnWhat.ALL_USER_AND_SYSTEM_MESSAGES: all user and system messages are used for training
-            - TrainOnWhat.CUSTOMIZED: each message has a trainable field, and the weights are assigned based on the trainable field
-        messages: a list of messages to render.
-
-    Returns:
-        A tuple of two tensors:
-            - tokens: a tensor of tokens
-            - weights: a tensor of weights
-    """
-    tokens_weights = [(token, 0) for token in start_tokens]
-    for idx, message in enumerate(messages):
-        if train_on_what == TrainOnWhat.CUSTOMIZED:
-            assert "trainable" in message, (
-                "When using CUSTOMIZED train_on_what, each message must have a trainable field: True if loss is applied on this message, False otherwise"
-            )
-        else:
-            assert "trainable" not in message, (
-                "When using non-CUSTOMIZED train_on_what, each message must not have a trainable field. Either change train_on_what to CUSTOMIZED or remove the trainable field from the message"
-            )
-
-        is_last_message = idx == len(messages) - 1
-        is_assistant = message["role"] == "assistant"
-        is_user_or_system = message["role"] in ["user", "system"]
-
-        # only apply weight to observation part if train_on_what is ALL_TOKENS
-        ob_part, action_part, action_tail = render_message(idx, message)
-        ob_weight = int(train_on_what == TrainOnWhat.ALL_TOKENS)
-        tokens_weights += [(token, ob_weight) for token in ob_part]
-
-        action_tokens = action_part
-        # action tail is effectively the stop_token and the start token for the next turn
-        # e.g. \n\nUser:
-        if is_last_message:
-            action_tokens += action_tail
-
-        match train_on_what:
-            case TrainOnWhat.LAST_ASSISTANT_MESSAGE:
-                action_has_weight = is_last_message and is_assistant
-            case TrainOnWhat.ALL_ASSISTANT_MESSAGES:
-                action_has_weight = is_assistant
-            case TrainOnWhat.ALL_MESSAGES:
-                action_has_weight = True
-            case TrainOnWhat.ALL_TOKENS:
-                action_has_weight = True
-            case TrainOnWhat.ALL_USER_AND_SYSTEM_MESSAGES:
-                action_has_weight = is_user_or_system
-            case TrainOnWhat.CUSTOMIZED:
-                action_has_weight = message.get("trainable", False)
-            case _:
-                raise ValueError(f"Unknown train_on_what: {train_on_what}")
-
-        tokens_weights += [(token, int(action_has_weight)) for token in action_tokens]
-
-    tokens, weights = zip(*tokens_weights, strict=True)
-    return torch.tensor(tokens), torch.tensor(weights)
 
 
 def parse_response_for_stop_token(
@@ -218,49 +479,29 @@ class RoleColonRenderer(Renderer):
     except that they use "Human" instead of "User".
     """
 
-    def _render_message(self, message: Message) -> tuple[list[int], list[int], list[int]]:
+    def render_message(self, idx: int, message: Message, is_last: bool = False) -> RenderedMessage:
         assert message.get("thinking") is None, "Thinking tokens not supported in RoleColonRenderer"
+        assert isinstance(message["content"], str), (
+            "RoleColonRenderer only supports message with string content"
+        )
         ob_str = message["role"].capitalize() + ":"
         # Observation (prompt) part
         ac_str = " " + message["content"] + "\n\n"
         # Action part
         ac_tail_str = "User:" if message["role"] == "assistant" else "<UNUSED>"
         # Action part that's only included in the last message in SFT
-        return (
-            self.tokenizer.encode(ob_str, add_special_tokens=False),
-            self.tokenizer.encode(ac_str, add_special_tokens=False),
-            self.tokenizer.encode(ac_tail_str, add_special_tokens=False),
+        prefix = hpcai.types.EncodedTextChunk(
+            tokens=self.tokenizer.encode(ob_str, add_special_tokens=False)
         )
-
-    def build_generation_prompt(
-        self, messages: list[Message], role: Role = "assistant", prefill: str | None = None
-    ) -> hpcai.ModelInput:
-        tokens: list[int] = []
-        tokens.extend(self._bos_tokens)
-        for message in messages:
-            ob_part, action_part, action_tail = self._render_message(message)
-            tokens.extend(ob_part)
-            tokens.extend(action_part)
-        new_partial_message = Message(role=role, content="")
-        ob_part, _action_part, _action_tail = self._render_message(new_partial_message)
-        tokens.extend(ob_part)
-        tokens.extend(self.tokenizer.encode(prefill or "", add_special_tokens=False))
-        return hpcai.ModelInput.from_ints(tokens)
-
-    def build_supervised_example(
-        self,
-        messages: list[Message],
-        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Get tokens and weights for action corresponding to final message
-        """
-        return build_supervised_example(
-            self._bos_tokens,
-            lambda _idx, message: self._render_message(message),
-            messages,
-            train_on_what,
+        content: list[hpcai.ModelInputChunk] = [
+            hpcai.types.EncodedTextChunk(
+                tokens=self.tokenizer.encode(ac_str, add_special_tokens=False)
+            )
+        ]
+        suffix = hpcai.types.EncodedTextChunk(
+            tokens=self.tokenizer.encode(ac_tail_str, add_special_tokens=False)
         )
+        return RenderedMessage(prefix=prefix, content=content, suffix=suffix)
 
     def get_stop_sequences(self) -> list[str]:
         return ["\n\nUser:"]
@@ -300,49 +541,23 @@ class Llama3Renderer(Renderer):
 
     """
 
-    def _render_message(self, message: Message) -> tuple[list[int], list[int], list[int]]:
+    def render_message(self, idx: int, message: Message, is_last: bool = False) -> RenderedMessage:
         assert message.get("thinking") is None, "CoT tokens not supported in Llama3"
+        assert isinstance(message["content"], str), (
+            "Llama3Renderer only supports message with string content"
+        )
         ob_str = f"<|start_header_id|>{message['role']}<|end_header_id|>\n\n"
         # Observation (prompt) part
         ac_str = f"{message['content']}<|eot_id|>"
-        # Action part
-        ac_tail_str = ""  # No action tail needed for Llama3 format
-        # Action part that's only included in the last message in SFT
-        return (
-            self.tokenizer.encode(ob_str, add_special_tokens=False),
-            self.tokenizer.encode(ac_str, add_special_tokens=False),
-            self.tokenizer.encode(ac_tail_str, add_special_tokens=False),
+        prefix = hpcai.types.EncodedTextChunk(
+            tokens=self.tokenizer.encode(ob_str, add_special_tokens=False)
         )
-
-    def build_generation_prompt(
-        self, messages: list[Message], role: Role = "assistant", prefill: str | None = None
-    ) -> hpcai.ModelInput:
-        tokens: list[int] = []
-        tokens.extend(self._bos_tokens)
-        for message in messages:
-            ob_part, action_part, action_tail = self._render_message(message)
-            tokens.extend(ob_part)
-            tokens.extend(action_part)
-        new_partial_message = Message(role=role, content="")
-        ob_part, _action_part, _action_tail = self._render_message(new_partial_message)
-        tokens.extend(ob_part)
-        tokens.extend(self.tokenizer.encode(prefill or "", add_special_tokens=False))
-        return hpcai.ModelInput.from_ints(tokens)
-
-    def build_supervised_example(
-        self,
-        messages: list[Message],
-        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Get tokens and weights for action corresponding to final message
-        """
-        return build_supervised_example(
-            self._bos_tokens,
-            lambda _idx, message: self._render_message(message),
-            messages,
-            train_on_what,
-        )
+        content: list[hpcai.ModelInputChunk] = [
+            hpcai.types.EncodedTextChunk(
+                tokens=self.tokenizer.encode(ac_str, add_special_tokens=False)
+            )
+        ]
+        return RenderedMessage(prefix=prefix, content=content)
 
     @property
     def _bos_tokens(self) -> list[int]:
@@ -372,16 +587,42 @@ class Qwen3Renderer(Renderer):
 
         </think>
         I can help you with...<|im_end|>
-
-    It is currently missing Qwen 3's functionality for removing thinking spans in multi-turn conversations.
     """
 
-    def _render_message(self, idx: int, message: Message) -> tuple[list[int], list[int], list[int]]:
+    def __init__(self, tokenizer: Tokenizer, strip_thinking_from_history: bool = True):
+        """
+        Args:
+            tokenizer: The tokenizer to use for encoding.
+            strip_thinking_from_history: When True (default), strips <think>...</think> blocks
+                from assistant messages in multi-turn history. This matches how Qwen3 models
+                were trained - they only see their own thinking during the current turn, not
+                from previous turns. Set to False to preserve thinking in history (useful for
+                certain RL scenarios where you want the extension property for efficiency).
+
+        See https://hpcai-docs.thinkingmachines.ai/rl/sequence-extension for details on
+        how this option affects multi-turn RL compute efficiency.
+        """
+        super().__init__(tokenizer)
+        self.strip_thinking_from_history = strip_thinking_from_history
+
+    def render_message(self, idx: int, message: Message, is_last: bool = False) -> RenderedMessage:
         assert message.get("thinking") is None, "TODO: support CoT in Qwen3 renderer"
+        assert isinstance(message["content"], str), (
+            "Qwen3Renderer only supports message with string content"
+        )
         maybe_newline = "\n" if idx > 0 else ""
         ob_str = f"{maybe_newline}<|im_start|>{message['role']}\n"
         ac_content = message["content"]
-        if message["role"] == "assistant" and "<think>" not in ac_content:
+        if (
+            self.strip_thinking_from_history
+            and message["role"] == "assistant"
+            and "</think>" in ac_content
+        ):
+            # Multi-turn conversation, we remove the thinking section from the assistant message.
+            # This matches how Qwen3 models were trained - they only see their own thinking
+            # during the current turn, not from previous turns.
+            ac_content = ac_content.split("</think>")[1].lstrip()
+        elif message["role"] == "assistant" and "<think>" not in ac_content:
             # Matching the paper, we force the assistant to start with <think>. Some SFT datasets include
             # <think> in the assistant messages, we so don't need to re-add it in those cases.
             ob_str += "<think>\n"
@@ -389,44 +630,21 @@ class Qwen3Renderer(Renderer):
         if "tool_calls" in message:
             ac_content += "\n".join(
                 [
-                    f"<tool_call>\n{json.dumps(tool_call)}\n</tool_call>"
+                    f"<tool_call>\n{json.dumps(_tool_call_payload(tool_call))}\n</tool_call>"
                     for tool_call in message["tool_calls"]
                 ]
             )
         ac_content += "<|im_end|>"
         # Action part
-        ac_tail_str = ""  # No action tail needed for Qwen format
-        # Action part that's only included in the last message in SFT
-        return (
-            self.tokenizer.encode(ob_str, add_special_tokens=False),
-            self.tokenizer.encode(ac_content, add_special_tokens=False),
-            self.tokenizer.encode(ac_tail_str, add_special_tokens=False),
+        prefix = hpcai.types.EncodedTextChunk(
+            tokens=self.tokenizer.encode(ob_str, add_special_tokens=False)
         )
-
-    def build_generation_prompt(
-        self, messages: list[Message], role: Role = "assistant", prefill: str | None = None
-    ) -> hpcai.ModelInput:
-        tokens: list[int] = []  # No BOS token for Qwen
-        for idx, message in enumerate(messages):
-            ob_part, action_part, _ = self._render_message(idx, message)
-            tokens.extend(ob_part)
-            tokens.extend(action_part)
-        # Add generation prompt
-        new_partial_message = Message(role=role, content="")
-        ob_part, _, _ = self._render_message(len(messages), new_partial_message)
-        tokens.extend(ob_part)
-        tokens.extend(self.tokenizer.encode(prefill or "", add_special_tokens=False))
-        return hpcai.ModelInput.from_ints(tokens)
-
-    def build_supervised_example(
-        self,
-        messages: list[Message],
-        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Get tokens and weights for action corresponding to final message.
-        """
-        return build_supervised_example([], self._render_message, messages, train_on_what)
+        content: list[hpcai.ModelInputChunk] = [
+            hpcai.types.EncodedTextChunk(
+                tokens=self.tokenizer.encode(ac_content, add_special_tokens=False)
+            )
+        ]
+        return RenderedMessage(prefix=prefix, content=content)
 
     @property
     def _end_message_token(self) -> int:
@@ -445,15 +663,20 @@ class Qwen3Renderer(Renderer):
 
         if not isinstance(tool_call, dict):
             return None
-        if (
-            "name" not in tool_call
-            or "args" not in tool_call
-            or not isinstance(tool_call["name"], str)
-            or not isinstance(tool_call["args"], dict)
-        ):
+        name = tool_call.get("name")
+        args = tool_call.get("args")
+        tool_id = tool_call.get("id")
+        if not isinstance(name, str) or not isinstance(args, dict):
             return None
-
-        return [ToolCall(**tool_call)]
+        if tool_id is not None and not isinstance(tool_id, str):
+            tool_id = None
+        # Convert to nested structure with arguments as JSON string
+        return [
+            ToolCall(
+                function=ToolCall.FunctionBody(name=name, arguments=json.dumps(args)),
+                id=tool_id,
+            )
+        ]
 
     def parse_response(self, response: list[int]) -> tuple[Message, bool]:
         assistant_message, parse_success = parse_response_for_stop_token(
@@ -465,6 +688,7 @@ class Qwen3Renderer(Renderer):
         # Follow Qwen docs and Qwen-Agent's tool calling prompt to use <tool_call>...</tool_call> tags to wrap the tool call.
         # - https://qwen.readthedocs.io/en/latest/getting_started/concepts.html#tool-calling
         # - https://github.com/QwenLM/Qwen-Agent/blob/main/qwen_agent/llm/fncall_prompts/nous_fncall_prompt.py#L279-L282
+        assert isinstance(assistant_message["content"], str)
         match = re.search(r"<tool_call>(.*?)</tool_call>", assistant_message["content"], re.DOTALL)
         if match:
             tool_calls = self._parse_tool_call(match.group(1))
@@ -496,8 +720,11 @@ class Qwen3InstructRenderer(Qwen3Renderer):
     use the <think> tag at all.
     """
 
-    def _render_message(self, idx: int, message: Message) -> tuple[list[int], list[int], list[int]]:
+    def render_message(self, idx: int, message: Message, is_last: bool = False) -> RenderedMessage:
         assert message.get("thinking") is None, "CoT tokens not supported in Qwen3 instruct 2507"
+        assert isinstance(message["content"], str), (
+            "Qwen3InstructRenderer only supports message with string content"
+        )
         maybe_newline = "\n" if idx > 0 else ""
         ob_str = f"{maybe_newline}<|im_start|>{message['role']}\n"
         ac_content = message["content"]
@@ -505,31 +732,185 @@ class Qwen3InstructRenderer(Qwen3Renderer):
         if "tool_calls" in message:
             ac_content += "\n".join(
                 [
-                    f"<tool_call>\n{json.dumps(tool_call)}\n</tool_call>"
+                    f"<tool_call>\n{json.dumps(_tool_call_payload(tool_call))}\n</tool_call>"
                     for tool_call in message["tool_calls"]
                 ]
             )
         ac_content += "<|im_end|>"
         # Action part
-        ac_tail_str = ""  # No action tail needed for Qwen format
-        # Action part that's only included in the last message in SFT
-        return (
-            self.tokenizer.encode(ob_str, add_special_tokens=False),
-            self.tokenizer.encode(ac_content, add_special_tokens=False),
-            self.tokenizer.encode(ac_tail_str, add_special_tokens=False),
+        prefix = hpcai.types.EncodedTextChunk(
+            tokens=self.tokenizer.encode(ob_str, add_special_tokens=False)
         )
+        content: list[hpcai.ModelInputChunk] = [
+            hpcai.types.EncodedTextChunk(
+                tokens=self.tokenizer.encode(ac_content, add_special_tokens=False)
+            )
+        ]
+        return RenderedMessage(prefix=prefix, content=content)
+
+
+class ImageProcessorProtocol(Protocol):
+    merge_size: int
+    patch_size: int
+
+    def get_number_of_image_patches(
+        self, height: int, width: int, images_kwargs: Optional[dict] = None
+    ) -> int:
+        raise NotImplementedError()
+
+
+def image_to_chunk(
+    image_or_str: Image.Image | str, image_processor: ImageProcessorProtocol
+) -> hpcai.types.ImageChunk:
+    """
+    Convert a PIL Image to a hpcai.types.ImageChunk for QwenVL
+    """
+
+    # load an image from a data URI or a URL
+    if isinstance(image_or_str, str):
+        with urllib.request.urlopen(image_or_str) as response:
+            pil_image = Image.open(io.BytesIO(response.read()))
+
+    # Otherwise the image is a PIL image and can be loaded directly
+    elif isinstance(image_or_str, Image.Image):
+        pil_image = image_or_str
+
+    # Validate the provided data is actually a valid image type
+    else:
+        raise ValueError("The provided image must be a PIL.Image.Image, URL, or data URI.")
+
+    # Convert to RGB if needed (JPEG doesn't support RGBA/LA/P modes)
+    if pil_image.mode in ("RGBA", "LA", "P"):
+        pil_image = pil_image.convert("RGB")
+
+    img_byte_arr = io.BytesIO()
+    pil_image.save(img_byte_arr, format="JPEG")
+    image_data = img_byte_arr.getvalue()
+
+    width, height = pil_image.size
+    num_image_tokens = (
+        image_processor.get_number_of_image_patches(height, width, images_kwargs={})
+        // image_processor.merge_size**2
+    )
+
+    return hpcai.types.ImageChunk(
+        data=image_data,
+        format="jpeg",
+        expected_tokens=num_image_tokens,
+    )
+
+
+class Qwen3VLRenderer(Qwen3Renderer):
+    """
+    Format like this:
+        <|im_start|>system
+        You are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>
+        <|im_start|>user
+        What can you help me with?<|im_end|>
+        <|im_start|>assistant
+        <think>
+
+        </think>
+        I can help you with...<|im_end|>
+
+    It is currently missing Qwen 3's functionality for removing thinking spans in multi-turn conversations.
+    """
+
+    image_processor: ImageProcessor
+
+    def __init__(self, tokenizer: Tokenizer, image_processor: ImageProcessor):
+        self.tokenizer = tokenizer
+        self.image_processor = image_processor
+
+    def _preprocess_message_parts(self, message: Message) -> list[ImagePart | TextPart]:
+        chunks: list[ImagePart | TextPart] = []
+
+        for content_chunk in super()._preprocess_message_parts(message):
+            if content_chunk["type"] == "image":
+                chunks.append(TextPart(type="text", text="<|vision_start|>"))
+
+            chunks.append(content_chunk)
+
+            if content_chunk["type"] == "image":
+                chunks.append(TextPart(type="text", text="<|vision_end|>"))
+
+        return chunks
+
+    def render_message(self, idx: int, message: Message, is_last: bool = False) -> RenderedMessage:
+        assert message.get("thinking") is None, "TODO: support CoT in Qwen3 renderer"
+        maybe_newline = "\n" if idx > 0 else ""
+        ob_str = f"{maybe_newline}<|im_start|>{message['role']}\n"
+
+        ac_content_chunks = self._preprocess_message_parts(message)
+
+        contains_think_token = any(
+            [
+                (
+                    "<think>" in x
+                    if isinstance(x, str)
+                    else "<think>" in x["text"]
+                    if isinstance(x, dict) and x["type"] == "text"
+                    else False
+                )
+                for x in ac_content_chunks
+            ]
+        )
+        if message["role"] == "assistant" and not contains_think_token:
+            # Matching the paper, we force the assistant to start with <think>. Some SFT datasets include
+            # <think> in the assistant messages, we so don't need to re-add it in those cases.
+            ob_str += "<think>\n"
+        # Observation (prompt) part
+        if "tool_calls" in message:
+            ac_content_chunks += [
+                TextPart(
+                    type="text",
+                    text="\n".join(
+                        [
+                            f"<tool_call>\n{json.dumps(_tool_call_payload(tool_call))}\n</tool_call>"
+                            for tool_call in message["tool_calls"]
+                        ]
+                    ),
+                )
+            ]
+        ac_content_chunks += [TextPart(type="text", text="<|im_end|>")]
+        # Action part
+
+        ac_content_chunks_encoded: list[hpcai.ModelInputChunk] = [
+            image_to_chunk(
+                image_or_str=x["image"],
+                image_processor=cast(ImageProcessorProtocol, self.image_processor),
+            )
+            if x["type"] == "image"
+            else hpcai.EncodedTextChunk(
+                tokens=self.tokenizer.encode(x["text"], add_special_tokens=False)
+            )
+            for x in ac_content_chunks
+        ]
+
+        prefix = hpcai.types.EncodedTextChunk(
+            tokens=self.tokenizer.encode(ob_str, add_special_tokens=False)
+        )
+        return RenderedMessage(prefix=prefix, content=ac_content_chunks_encoded)
 
 
 class DeepSeekV3Renderer(Renderer):
     """
     Format like this (no newlines between messages):
-        <|begin_of_sentence|><|User|>What can you help me with?<|Assistant|><think>Thinking...</think>I can help you with...<|end_of_centence|>
+        <|begin_of_sentence|><|User|>What can you help me with?<|Assistant|><think>Thinking...</think>I can help you with...<|end_of_sentence|>
     For no-think, just use <|Assistant|></think>
+    Deepseek renderer does not support the system role out of the box. You can set system_role_as_user to True to automatically convert the system role to the user role.
     """
 
-    def _render_message(self, message: Message) -> tuple[list[int], list[int], list[int]]:
+    def __init__(self, tokenizer: Tokenizer, system_role_as_user: bool = False):
+        super().__init__(tokenizer)
+        self.system_role_as_user = system_role_as_user
+
+    def render_message(self, idx: int, message: Message, is_last: bool = False) -> RenderedMessage:
         assert message.get("thinking") is None, "TODO: support CoT in DsV3 renderer"
-        if message["role"] == "user":
+        assert isinstance(message["content"], str), (
+            "DeepSeekV3Renderer only supports message with string content"
+        )
+        if message["role"] == "user" or (self.system_role_as_user and message["role"] == "system"):
             role_token = self._get_special_token("User")
         elif message["role"] == "assistant":
             role_token = self._get_special_token("Assistant")
@@ -540,39 +921,10 @@ class DeepSeekV3Renderer(Renderer):
 
         if message["role"] == "assistant":  # end_of_message only for assistant in dsv3
             ac.append(self._end_message_token)
-        # Action part that's only included in the last message in SFT
-        ac_tail = []  # No action tail needed for DsV3 format
-        return (ob, ac, ac_tail)
 
-    def build_generation_prompt(
-        self, messages: list[Message], role: Role = "assistant", prefill: str | None = None
-    ) -> hpcai.ModelInput:
-        tokens: list[int] = []
-        tokens.extend(self._bos_tokens)
-        for message in messages:
-            ob_part, action_part, action_tail = self._render_message(message)
-            tokens.extend(ob_part)
-            tokens.extend(action_part)
-        new_partial_message = Message(role=role, content="")
-        ob_part, _action_part, _action_tail = self._render_message(new_partial_message)
-        tokens.extend(ob_part)
-        tokens.extend(self.tokenizer.encode(prefill or "", add_special_tokens=False))
-        return hpcai.ModelInput.from_ints(tokens)
-
-    def build_supervised_example(
-        self,
-        messages: list[Message],
-        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Get tokens and weights for action corresponding to final message
-        """
-        return build_supervised_example(
-            self._bos_tokens,
-            lambda _idx, message: self._render_message(message),
-            messages,
-            train_on_what,
-        )
+        prefix = hpcai.types.EncodedTextChunk(tokens=ob)
+        content: list[hpcai.ModelInputChunk] = [hpcai.types.EncodedTextChunk(tokens=ac)]
+        return RenderedMessage(prefix=prefix, content=content)
 
     def _get_special_token(self, name: str) -> int:
         sep = chr(65372)
@@ -601,20 +953,257 @@ class DeepSeekV3DisableThinkingRenderer(DeepSeekV3Renderer):
     Renderer that disables thinking for DsV3 models
     """
 
-    def _render_message(self, message: Message) -> tuple[list[int], list[int], list[int]]:
+    def render_message(self, idx: int, message: Message, is_last: bool = False) -> RenderedMessage:
+        assert isinstance(message["content"], str), (
+            "DeepSeekV3DisableThinkingRenderer only supports message with string content"
+        )
         if (
             message["role"] == "assistant"
             and not message["content"].startswith("<think>")
             and not message["content"].startswith("</think>")
         ):
             message["content"] = "</think>" + message["content"]
-        return super()._render_message(message)
+        return super().render_message(idx, message, is_last)
 
     def build_generation_prompt(
         self, messages: list[Message], role: Role = "assistant", prefill: str | None = None
     ) -> hpcai.ModelInput:
         prefill = "</think>" + (prefill or "")
         return super().build_generation_prompt(messages, role, prefill)
+
+
+class KimiK2Renderer(Renderer):
+    """
+    Format for moonshotai/Kimi-K2-Thinking:
+        <|im_system|>system<|im_middle|>You are Kimi, an AI assistant created by Moonshot AI.<|im_end|>
+        <|im_user|>user<|im_middle|>What can you help me with?<|im_end|>
+        <|im_assistant|>assistant<|im_middle|><think>reasoning</think>I can help you with...<|im_end|>
+
+    Historical assistant messages use empty <think></think> blocks, while the final assistant
+    response preserves reasoning_content in the thinking block.
+    """
+
+    def render_message(self, idx: int, message: Message, is_last: bool = False) -> RenderedMessage:
+        """
+        Render a message. For assistant messages, is_last controls whether thinking is preserved
+        (True) or stripped to empty <think></think> (False).
+        """
+        assert isinstance(message["content"], str), (
+            "KimiK2Renderer only supports message with string content"
+        )
+        role = message["role"]
+        role_name = message.get("name", role)
+
+        # Build role token based on role type
+        if role == "user":
+            ob_str = f"<|im_user|>{role_name}<|im_middle|>"
+        elif role == "assistant":
+            ob_str = f"<|im_assistant|>{role_name}<|im_middle|>"
+        elif role == "system":
+            ob_str = f"<|im_system|>{role_name}<|im_middle|>"
+        elif role == "tool":
+            ob_str = f"<|im_system|>{role_name}<|im_middle|>"
+            # Tool responses have special formatting
+            tool_call_id = message.get("tool_call_id", "")
+            ob_str += f"## Return of {tool_call_id}\n"
+        else:
+            ob_str = f"<|im_system|>{role_name}<|im_middle|>"
+
+        # Build action content
+        ac_str = ""
+        if role == "assistant":
+            # For the last assistant message (is_last=True), preserve thinking; otherwise use empty think block
+            thinking = message.get("thinking", "")
+            if is_last and thinking:
+                ac_str = f"<think>{thinking}</think>"
+            else:
+                ac_str = "<think></think>"
+            ac_str += message["content"]
+
+            # Handle tool calls
+            if "tool_calls" in message and message["tool_calls"]:
+                ac_str += "<|tool_calls_section_begin|>"
+                for tool_call in message["tool_calls"]:
+                    tool_id = tool_call.id or ""
+                    args = tool_call.function.arguments
+                    ac_str += f"<|tool_call_begin|>{tool_id}<|tool_call_argument_begin|>{args}<|tool_call_end|>"
+                ac_str += "<|tool_calls_section_end|>"
+        else:
+            ac_str = message["content"]
+
+        ac_str += "<|im_end|>"
+
+        prefix = hpcai.types.EncodedTextChunk(tokens=self.tokenizer.encode(ob_str))
+        content: list[hpcai.ModelInputChunk] = [
+            hpcai.types.EncodedTextChunk(tokens=self.tokenizer.encode(ac_str))
+        ]
+        return RenderedMessage(prefix=prefix, content=content)
+
+    def _get_default_system_chunk(self) -> hpcai.types.EncodedTextChunk:
+        """Returns chunk for the default system message if none is present."""
+        system_str = "<|im_system|>system<|im_middle|>You are Kimi, an AI assistant created by Moonshot AI.<|im_end|>"
+        return hpcai.types.EncodedTextChunk(tokens=self.tokenizer.encode(system_str))
+
+    def build_generation_prompt(
+        self, messages: list[Message], role: Role = "assistant", prefill: str | None = None
+    ) -> hpcai.ModelInput:
+        chunks: list[hpcai.types.ModelInputChunk] = []
+
+        # Add default system prompt if no system message present
+        if len(messages) == 0 or messages[0]["role"] != "system":
+            chunks.append(self._get_default_system_chunk())
+
+        for idx, message in enumerate(messages):
+            # For generation prompt, no message is "last assistant" since we're generating new response
+            rendered_message = self.render_message(idx, message, is_last=False)
+            ob_chunk = rendered_message.get("prefix")
+            action_chunks = rendered_message["content"]
+            if ob_chunk:
+                chunks.append(ob_chunk)
+            chunks.extend([x for x in action_chunks if x])
+
+        # Add generation prompt for new assistant message
+        gen_prompt = f"<|im_assistant|>{role}<|im_middle|>"
+        chunks.append(hpcai.types.EncodedTextChunk(tokens=self.tokenizer.encode(gen_prompt)))
+        if prefill:
+            chunks.append(hpcai.types.EncodedTextChunk(tokens=self.tokenizer.encode(prefill)))
+        return hpcai.ModelInput(chunks=chunks)
+
+    def build_supervised_example(
+        self,
+        messages: list[Message],
+        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
+    ) -> tuple[hpcai.ModelInput, torch.Tensor]:
+        """
+        Override to properly handle thinking preservation for the last assistant message.
+        """
+        # Find last non-tool-call assistant message index
+        last_assistant_idx = -1
+        for idx in range(len(messages) - 1, -1, -1):
+            if messages[idx]["role"] == "assistant" and "tool_calls" not in messages[idx]:
+                last_assistant_idx = idx
+                break
+
+        model_input_chunks_weights: list[tuple[hpcai.types.ModelInputChunk, float]] = []
+
+        # Add default system prompt if needed
+        if len(messages) == 0 or messages[0]["role"] != "system":
+            model_input_chunks_weights.append((self._get_default_system_chunk(), 0.0))
+
+        for idx, message in enumerate(messages):
+            if train_on_what == TrainOnWhat.CUSTOMIZED:
+                assert "trainable" in message, (
+                    "When using CUSTOMIZED train_on_what, each message must have a trainable field"
+                )
+            else:
+                assert "trainable" not in message, (
+                    "When using non-CUSTOMIZED train_on_what, each message must not have a trainable field"
+                )
+
+            is_last_message = idx == len(messages) - 1
+            is_assistant = message["role"] == "assistant"
+            is_user_or_system = message["role"] in ["user", "system"]
+
+            # For Kimi K2, preserve thinking only for last non-tool-call assistant
+            is_last_assistant = idx >= last_assistant_idx and is_assistant
+            rendered_message = self.render_message(idx, message, is_last=is_last_assistant)
+
+            ob_part = rendered_message.get("prefix")
+            action_parts = rendered_message.get("content")
+
+            ob_weight = int(train_on_what == TrainOnWhat.ALL_TOKENS)
+            if ob_part:
+                model_input_chunks_weights += [(ob_part, ob_weight)]
+
+            match train_on_what:
+                case TrainOnWhat.LAST_ASSISTANT_MESSAGE:
+                    action_has_weight = is_last_message and is_assistant
+                case TrainOnWhat.ALL_ASSISTANT_MESSAGES:
+                    action_has_weight = is_assistant
+                case TrainOnWhat.ALL_MESSAGES:
+                    action_has_weight = True
+                case TrainOnWhat.ALL_TOKENS:
+                    action_has_weight = True
+                case TrainOnWhat.ALL_USER_AND_SYSTEM_MESSAGES:
+                    action_has_weight = is_user_or_system
+                case TrainOnWhat.CUSTOMIZED:
+                    action_has_weight = message.get("trainable", False)
+                case _:
+                    raise ValueError(f"Unknown train_on_what: {train_on_what}")
+
+            model_input_chunks_weights += [
+                (action_part, int(action_has_weight)) for action_part in action_parts if action_part
+            ]
+
+        weights_data = [w for chunk, w in model_input_chunks_weights for _ in range(chunk.length)]
+        weights_tensor = torch.tensor(weights_data)
+
+        model_input_chunks = [chunk for chunk, _ in model_input_chunks_weights]
+        return hpcai.ModelInput(chunks=model_input_chunks), weights_tensor
+
+    @property
+    def _end_message_token(self) -> int:
+        tokens = self.tokenizer.encode("<|im_end|>")
+        assert len(tokens) == 1, f"Expected single token for <|im_end|>, got {len(tokens)}"
+        return tokens[0]
+
+    def get_stop_sequences(self) -> list[int]:
+        return [self._end_message_token]
+
+    def parse_response(self, response: list[int]) -> tuple[Message, bool]:
+        assistant_message, parse_success = parse_response_for_stop_token(
+            response, self.tokenizer, self._end_message_token
+        )
+        if not parse_success:
+            return assistant_message, False
+
+        content = assistant_message["content"]
+        assert isinstance(content, str)
+
+        # Extract thinking content if present
+        think_match = re.search(r"<think>(.*?)</think>", content, re.DOTALL)
+        if think_match:
+            thinking = think_match.group(1)
+            # Remove the think block from content
+            content = content[think_match.end() :].lstrip()
+            assistant_message["thinking"] = thinking
+            assistant_message["content"] = content
+
+        # Handle tool calls if present
+        if "<|tool_calls_section_begin|>" in content:
+            tool_section_match = re.search(
+                r"<\|tool_calls_section_begin\|>(.*?)<\|tool_calls_section_end\|>",
+                content,
+                re.DOTALL,
+            )
+            if tool_section_match:
+                tool_section = tool_section_match.group(1)
+                tool_calls: list[ToolCall] = []
+
+                # Parse individual tool calls
+                tool_call_pattern = r"<\|tool_call_begin\|>(.*?)<\|tool_call_argument_begin\|>(.*?)<\|tool_call_end\|>"
+                for match in re.finditer(tool_call_pattern, tool_section, re.DOTALL):
+                    tool_id = match.group(1)
+                    args_str = match.group(2)
+                    # Try to parse as JSON to validate, but store as string
+                    try:
+                        json.loads(args_str)
+                        tool_calls.append(
+                            ToolCall(
+                                function=ToolCall.FunctionBody(name="", arguments=args_str),
+                                id=tool_id if tool_id else None,
+                            )
+                        )
+                    except json.JSONDecodeError:
+                        return assistant_message, False
+
+                if tool_calls:
+                    assistant_message["tool_calls"] = tool_calls
+                    # Remove tool section from content
+                    content = content[: content.find("<|tool_calls_section_begin|>")]
+                    assistant_message["content"] = content
+
+        return assistant_message, True
 
 
 class GptOssRenderer(Renderer):
@@ -646,10 +1235,11 @@ class GptOssRenderer(Renderer):
             "Reasoning effort must be set iff using system prompt"
         )
 
-    def _render_message(
-        self, message: Message, is_last: bool = False
-    ) -> tuple[list[int], list[int], list[int]]:
+    def render_message(self, idx: int, message: Message, is_last: bool = False) -> RenderedMessage:
         assert message.get("tool_calls") is None, "TODO: support tools in gpt-oss renderer"
+        assert isinstance(message["content"], str), (
+            "GptOssRenderer only supports message with string content"
+        )
         # Observation (prompt) part
         ob_str = f"<|start|>{message['role']}"
         # Action part
@@ -659,7 +1249,8 @@ class GptOssRenderer(Renderer):
 
             # Assistant channels. See https://cookbook.openai.com/articles/openai-harmony
             thinking = message.get("thinking")
-            content = message.get("content", "")
+            message_content = message.get("content", "")
+            assert isinstance(message_content, str), "GptOssRenderer only supports string content"
 
             # Analysis channel (CoT)
             if thinking:
@@ -668,7 +1259,7 @@ class GptOssRenderer(Renderer):
                     ac_str += f"<|channel|>analysis<|message|>{thinking}<|end|><|start|>assistant"
 
             # Final channel (Response Content)
-            ac_str += f"<|channel|>final<|message|>{content}"
+            ac_str += f"<|channel|>final<|message|>{message_content}"
         else:
             assert message.get("thinking") is None, (
                 "Thinking is only allowed for assistant messages"
@@ -681,13 +1272,15 @@ class GptOssRenderer(Renderer):
             # <|return|> ends the last-message in harmony (but should be replaced by <|end|> when continuing the convo)
             ac_str += "<|return|>"
 
-        # Action part that's only included in the last message in SFT
-        ac_tail_str = ""  # No action tail needed for gpt-oss format
-        return (
-            self.tokenizer.encode(ob_str, add_special_tokens=False),
-            self.tokenizer.encode(ac_str, add_special_tokens=False),
-            self.tokenizer.encode(ac_tail_str, add_special_tokens=False),
+        prefix = hpcai.types.EncodedTextChunk(
+            tokens=self.tokenizer.encode(ob_str, add_special_tokens=False)
         )
+        content: list[hpcai.ModelInputChunk] = [
+            hpcai.types.EncodedTextChunk(
+                tokens=self.tokenizer.encode(ac_str, add_special_tokens=False)
+            )
+        ]
+        return RenderedMessage(prefix=prefix, content=content)
 
     def _build_system_prompt(self) -> str:
         current_date = (
@@ -699,48 +1292,14 @@ class GptOssRenderer(Renderer):
             current_date=current_date, reasoning_effort=self.reasoning_effort
         )
 
-    def build_generation_prompt(
-        self, messages: list[Message], role: Role = "assistant", prefill: str | None = None
-    ) -> hpcai.ModelInput:
-        tokens: list[int] = []
-        tokens.extend(self._bos_tokens)
+    @property
+    def _bos_tokens(self) -> list[int]:
+        tokens = []
         if self.use_system_prompt:
             tokens.extend(
                 self.tokenizer.encode(self._build_system_prompt(), add_special_tokens=False)
             )
-        for message in messages:
-            ob_part, action_part, action_tail = self._render_message(message)
-            tokens.extend(ob_part)
-            tokens.extend(action_part)
-        new_partial_message = Message(role=role, content="")
-        ob_part, _action_part, _action_tail = self._render_message(new_partial_message)
-        tokens.extend(ob_part)
-        tokens.extend(self.tokenizer.encode(prefill or "", add_special_tokens=False))
-        return hpcai.ModelInput.from_ints(tokens)
-
-    def build_supervised_example(
-        self,
-        messages: list[Message],
-        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Get tokens and weights for action corresponding to final message
-        """
-        start_tokens = self._bos_tokens
-        if self.use_system_prompt:
-            start_tokens.extend(
-                self.tokenizer.encode(self._build_system_prompt(), add_special_tokens=False)
-            )
-        return build_supervised_example(
-            start_tokens,
-            lambda _idx, message: self._render_message(message, is_last=_idx == len(messages) - 1),
-            messages,
-            train_on_what,
-        )
-
-    @property
-    def _bos_tokens(self) -> list[int]:
-        return []
+        return tokens
 
     @property
     def _return_token(self) -> int:
@@ -755,13 +1314,18 @@ class GptOssRenderer(Renderer):
         return parse_response_for_stop_token(response, self.tokenizer, self._return_token)
 
 
-def get_renderer(name: str, tokenizer: Tokenizer) -> Renderer:
+def get_renderer(
+    name: str, tokenizer: Tokenizer, image_processor: ImageProcessor | None = None
+) -> Renderer:
     if name == "role_colon":
         return RoleColonRenderer(tokenizer)
     elif name == "llama3":
         return Llama3Renderer(tokenizer)
     elif name == "qwen3":
         return Qwen3Renderer(tokenizer)
+    elif name == "qwen3_vl":
+        assert image_processor is not None, "qwen3_vl renderer requires an image_processor"
+        return Qwen3VLRenderer(tokenizer, image_processor)
     elif name == "qwen3_disable_thinking":
         return Qwen3DisableThinkingRenderer(tokenizer)
     elif name == "qwen3_instruct":
@@ -770,6 +1334,8 @@ def get_renderer(name: str, tokenizer: Tokenizer) -> Renderer:
         return DeepSeekV3Renderer(tokenizer)
     elif name == "deepseekv3_disable_thinking":
         return DeepSeekV3DisableThinkingRenderer(tokenizer)
+    elif name == "kimi_k2":
+        return KimiK2Renderer(tokenizer)
     elif name == "gpt_oss_no_sysprompt":
         return GptOssRenderer(tokenizer, use_system_prompt=False)
     elif name == "gpt_oss_low_reasoning":
