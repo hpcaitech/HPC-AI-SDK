@@ -15,7 +15,8 @@ from typing_extensions import TypeAlias
 
 from .encoded_text_chunk_param import EncodedTextChunkParam
 from .image_asset_pointer_chunk_param import ImageAssetPointerChunkParam
+from .image_chunk_param import ImageChunkParam
 
 __all__ = ["ModelInputChunkParam"]
 
-ModelInputChunkParam: TypeAlias = Union[EncodedTextChunkParam, ImageAssetPointerChunkParam]
+ModelInputChunkParam: TypeAlias = Union[EncodedTextChunkParam, ImageAssetPointerChunkParam, ImageChunkParam]
