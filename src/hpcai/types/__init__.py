@@ -86,9 +86,11 @@ from .sampling_asample_params import SamplingAsampleParams as _SamplingAsamplePa
 from .future_retrieve_response import FutureRetrieveResponse as FutureRetrieveResponse
 from .compute_logprobs_response import ComputeLogprobsResponse as ComputeLogprobsResponse
 from .image_asset_pointer_chunk import ImageAssetPointerChunk as ImageAssetPointerChunk
+from .image_chunk import ImageChunk as ImageChunk
 from .training_optim_step_params import TrainingOptimStepParams as _TrainingOptimStepParams
 from .weight_save_for_sampler_params import WeightSaveForSamplerParams as _WeightSaveForSamplerParams
 from .image_asset_pointer_chunk_param import ImageAssetPointerChunkParam as _ImageAssetPointerChunkParam
+from .image_chunk_param import ImageChunkParam as _ImageChunkParam
 from .session_end_event_param import SessionEndEventParam as _SessionEndEventParam
 from .session_start_event_param import SessionStartEventParam as _SessionStartEventParam
 from .unhandled_exception_event import UnhandledExceptionEvent as UnhandledExceptionEvent

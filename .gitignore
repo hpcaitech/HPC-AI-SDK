@@ -143,6 +143,9 @@ ENV/
 env.bak/
 venv.bak/
 
+code.diff
+metrics.jsonl
+
 # Spyder project settings
 .spyderproject
 .spyproject
